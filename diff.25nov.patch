@@ -1,0 +1,292 @@
+diff --git a/conf/hardware_config.py b/conf/hardware_config.py
+index 5bbb8c059..5cf303194 100755
+--- a/conf/hardware_config.py
++++ b/conf/hardware_config.py
+@@ -20,7 +20,8 @@ class DeviceType(Enum):
+ class HWConf:
+     npu_memory: float
+     npu_flops_fp16: float
+-    npu_flops_int8: float
++    npu_flops_int8: float    
++    vec_flops: float    
+     intra_node_bandwidth: float # GB/s
+     inter_node_bandwidth: float # GB/s
+     local_memory_bandwidth: float # GB/s
+@@ -31,41 +32,45 @@ class HWConf:
+         def cfg(**kwargs):
+             return kwargs
+ 
+-        e9, e12, e3, e6 = 1e9, 1e12, 1e3, 1e6
+-
+-        configs = {
++        # e9, e12, e3, e6 = 1e9, 1e12, 1e3, 1e6
++        #Batya checked. clock speed is 1.65 GHz (in spec. it is 1.8GHz)
++        #computing capacity (TF/sec) = clock (cycles/sec) * Ops per cycle * #cores  ==> for exapmle, in 910B4, clock speed is 1.65GHz and cube can perform 16x16x16x2 ops * 20 (#cores) ==> ~ 270TF/sec (13.5 TF per core)
++        # the vector unit handles element-wise or reduction operations, such as ReLU, sigmoid, softmax, or vector add.
++        # It processes 128 FP16 data elements per cycle, performing operations like addition or multiplication.
++        # vector unit capability: 1.65GHz * 128  (ops) * 2 (#units per core) * 20 (#cores) = 8 TF/sec (160 GF per core)
++        configs = {           
+             DeviceType.ASCEND910B4: cfg(
+-                npu_memory=32 * e9, npu_flops_fp16=280 * e12, npu_flops_int8=560 * e12,
+-                intra_node_bandwidth=30 * e9, inter_node_bandwidth=12.5 * e9,
+-                local_memory_bandwidth=800 * e9, onchip_buffer_size=96 * 1024* e3),
++                npu_memory=32e9, npu_flops_fp16=280e12, npu_flops_int8=560e12, vec_flops = 8e12,
++                intra_node_bandwidth=30e9, inter_node_bandwidth=12.5e9,
++                local_memory_bandwidth=800e9, onchip_buffer_size=96 * 1024*1024),
+             DeviceType.ASCEND910B3_313T_64G: cfg(
+-                npu_memory=64 * e9, npu_flops_fp16=313 * e12, npu_flops_int8=626 * e12,
+-                intra_node_bandwidth=400 * e9, inter_node_bandwidth=90 * e9,
+-                local_memory_bandwidth=1200 * e9, onchip_buffer_size=192 * e6),
++                npu_memory=64e9, npu_flops_fp16=313e12, npu_flops_int8=626e12,  vec_flops = 8e12,
++                intra_node_bandwidth=400e9, inter_node_bandwidth=90e9,
++                local_memory_bandwidth=1200e9, onchip_buffer_size=192e6),
+             DeviceType.ASCEND910B2_376T_64G: cfg(
+-                npu_memory=64 * e9, npu_flops_fp16=376 * e12, npu_flops_int8=752 * e12,
+-                intra_node_bandwidth=400 * e9, inter_node_bandwidth=90 * e9,
+-                local_memory_bandwidth=1200 * e9, onchip_buffer_size=192 * e6),
+-            DeviceType.ASCEND910C: cfg(
+-                npu_memory=128 * e9, npu_flops_fp16=800 * e12, npu_flops_int8=1600 * e12,
+-                intra_node_bandwidth=392 * e9, inter_node_bandwidth=3200 * e9,
+-                local_memory_bandwidth=800 * e9, onchip_buffer_size=65536 * e3),
++                npu_memory=64e9, npu_flops_fp16=376e12, npu_flops_int8=752e12,  vec_flops = 8e12,
++                intra_node_bandwidth=400e9, inter_node_bandwidth=90e9,
++                local_memory_bandwidth=1200e9, onchip_buffer_size=192e6),
++            DeviceType.ASCEND910C: cfg( # each die is 375TF/s
++                npu_memory=128e9, npu_flops_fp16=750e12, npu_flops_int8=1500e12,  vec_flops = 23e12,
++                intra_node_bandwidth=196e9, inter_node_bandwidth=50e9,
++                local_memory_bandwidth=1600e9, onchip_buffer_size=192*1024*1024), #
+             DeviceType.ASCENDDAVID: cfg(
+-                npu_memory=128 * e9, npu_flops_fp16=486 * e12, npu_flops_int8=972 * e12,
+-                intra_node_bandwidth=1008 * e9, inter_node_bandwidth=1600 * e9,
+-                local_memory_bandwidth=800 * e9, onchip_buffer_size=65536 * e3),
++                npu_memory=128e9, npu_flops_fp16=486e12, npu_flops_int8=972e12,  vec_flops = 8e12,
++                intra_node_bandwidth=1008e9, inter_node_bandwidth=1600e9,
++                local_memory_bandwidth=800e9, onchip_buffer_size=65536e3),
+             DeviceType.NVidiaA100: cfg(
+-                npu_memory=40 * e9, npu_flops_fp16=312 * e12, npu_flops_int8=624 * e12,
+-                intra_node_bandwidth=600 * e9, inter_node_bandwidth=64 * e9,
+-                local_memory_bandwidth=1555 * e9, onchip_buffer_size=40960 * e3),
++                npu_memory=40e9, npu_flops_fp16=312e12, npu_flops_int8=624e12,  vec_flops = 312e12,
++                intra_node_bandwidth=600e9, inter_node_bandwidth=64e9,
++                local_memory_bandwidth=1555e9, onchip_buffer_size=40960e3),
+             DeviceType.NVidiaH800: cfg(
+-                npu_memory=80 * e9, npu_flops_fp16=1513 * e12, npu_flops_int8=3026 * e12,
+-                intra_node_bandwidth=600 * e9, inter_node_bandwidth=128 * e9,
+-                local_memory_bandwidth=2000 * e9, onchip_buffer_size=51200 * e3),
++                npu_memory=80e9, npu_flops_fp16=1513e12, npu_flops_int8=3026e12,  vec_flops = 1513e12,
++                intra_node_bandwidth=600e9, inter_node_bandwidth=128e9,
++                local_memory_bandwidth=2000e9, onchip_buffer_size=51200e3),
+             DeviceType.NVidiaH20: cfg(
+-                npu_memory=96 * e9, npu_flops_fp16=900 * e12, npu_flops_int8=900 * e12,
+-                intra_node_bandwidth=900 * e9, inter_node_bandwidth=128 * e9,
+-                local_memory_bandwidth=4000 * e9, onchip_buffer_size=51200 * e3),
++                npu_memory=96e9, npu_flops_fp16=900e12, npu_flops_int8=900e12, vec_flops = 900e12,
++                intra_node_bandwidth=900e9, inter_node_bandwidth=128e9,
++                local_memory_bandwidth=4000e9, onchip_buffer_size=51200e3),
+         }
+ 
+         if device_type not in configs:
+@@ -88,3 +93,4 @@ class HardwareTopology:
+         hw_conf.npu_flops_int8 *= compute_util
+         hw_conf.local_memory_bandwidth *= mem_bw_util
+         return cls(npus_per_rank=npus_per_rank, number_of_ranks=number_of_ranks, hw_conf=hw_conf)
++
+diff --git a/examples/offline_inference/basic/basic.py b/examples/offline_inference/basic/basic.py
+index 93097479b..7ce761725 100644
+--- a/examples/offline_inference/basic/basic.py
++++ b/examples/offline_inference/basic/basic.py
+@@ -19,11 +19,12 @@ from datasets import load_dataset
+ 
+ 
+ class VLLMRunner:
+-    def __init__(self, model_name: str, dataset_name: str, hw_topology: HardwareTopology, dataset_subset: str, dataset_split: str = "test"):
++    def __init__(self, model_name: str, dataset_name: str, hw_topology: HardwareTopology, dataset_subset: str, dataset_key:str,  dataset_split: str = "test"):
+         self.model_name = model_name
+         self.dataset_name = dataset_name
+         self.dataset_subset = dataset_subset
+-        self.dataset_split = dataset_split
++        self.dataset_key = dataset_key
++        self.dataset_split = dataset_split        
+         self.llm = None
+         self.prompts = None
+         self.hw_topology = hw_topology
+@@ -47,12 +48,12 @@ class VLLMRunner:
+             raise ValueError(f"Column '{text_column}' not found in dataset. Available columns: {dataset.column_names}")
+         
+         # random.shuffle(input_list)
+-        self.prompts = input_list['Context'][:n_samples]
++        self.prompts = input_list[self.dataset_key][:n_samples]
+ 
+ 
+     def init_model(self):        
+ 
+-            self.llm = LLM(model=self.model_name, pipeline_parallel_size= 4,
++            self.llm = LLM(model=self.model_name, pipeline_parallel_size= 1,
+                         tensor_parallel_size= 1,
+                         enforce_eager=True, 
+                         distributed_executor_backend="mp",
+@@ -204,8 +205,9 @@ if __name__ == "__main__":
+ 
+     vllm_runner = VLLMRunner(
+             model_name="NousResearch/Hermes-3-Llama-3.1-8B",
+-            dataset_name="Amod/mental_health_counseling_conversations",#'yehzw/wikitext-103',
++            dataset_name="nvidia/Nemotron-RL-math-OpenMathReasoning", #"Amod/mental_health_counseling_conversations",#'yehzw/wikitext-103',
+             dataset_subset=None,
++            dataset_key="question",
+             dataset_split='train',
+             hw_topology=hw_topology)
+ 
+diff --git a/vllm/entrypoints/openai/api_server.py b/vllm/entrypoints/openai/api_server.py
+index 7d1112919..59f9c7fa8 100644
+--- a/vllm/entrypoints/openai/api_server.py
++++ b/vllm/entrypoints/openai/api_server.py
+@@ -39,7 +39,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
+ from typing_extensions import assert_never
+ 
+ import vllm.envs as envs
+-from conf.hardware_config import HardwareTopology, DeviceType
++# from .conf.hardware_config import HardwareTopology, DeviceType
+ from vllm.config import VllmConfig
+ from vllm.engine.arg_utils import AsyncEngineArgs
+ from vllm.engine.async_llm_engine import AsyncLLMEngine  # type: ignore
+diff --git a/vllm/v1/worker/cost_model.py b/vllm/v1/worker/cost_model.py
+index 9fc329e94..8193e4a25 100644
+--- a/vllm/v1/worker/cost_model.py
++++ b/vllm/v1/worker/cost_model.py
+@@ -240,56 +240,6 @@ class CostModel:
+         best_config.update(infer_config.__dict__)
+         return best_config
+ 
+-    # def optimize_parallelism_deepseek(self, infer_config: InferenceConfig, dp_params: DeepseekParams,
+-    #                                   evaluation_mode: bool = False) -> dict:
+-    #     available_npus = self.hw.npus_per_rank
+-    #     npu_available_mem = self.hw.hw_conf.npu_memory
+-    #     size_of_w = self.model.torch_dtype.itemsize
+-    #     model_size = self.model.model_size_b * BILLION * size_of_w
+-
+-    #     best_config = {}
+-    #     min_prefill_time = float('inf')
+-    #     min_decode_time = float('inf')
+-
+-    #     chunk_sizes = [
+-    #         size
+-    #         for size in [512, 1024, 2048, 4096, 8192, 16384, 32768]
+-    #         if size <= self.model.max_seq_length
+-    #     ]
+-
+-    #     parallel_degrees = [1, 2, 4, 8]
+-
+-    #     for pp, chunk_size, tp, kvp in itertools.product(parallel_degrees, chunk_sizes, parallel_degrees,
+-    #                                                      parallel_degrees):
+-    #         if pp * tp * kvp > available_npus or model_size > npu_available_mem * tp * pp:
+-    #             continue
+-
+-    #         p_config_prefill = ParallelismConfig(pp=pp, tp=tp, kvp=kvp, ep=dp_params.p_ep, dp=dp_params.p_dp)
+-    #         p_config_decode = ParallelismConfig(pp=pp, tp=tp, kvp=kvp, ep=dp_params.d_ep, dp=dp_params.d_dp)
+-
+-    #         exec_config = ExecutionConfig(
+-    #             chunk_size=chunk_size,
+-    #             use_flash_attn=False,
+-    #             qkv_weights_concat=True,
+-    #             evaluation_mode=evaluation_mode
+-    #         )
+-    #         result = self._evaluate_parallel_config_deepseek(infer_config, p_config_prefill,
+-    #                                                          p_config_decode, exec_config)
+-
+-    #         if result['TTFT'] < min_prefill_time:
+-    #             min_prefill_time = result['TTFT']
+-    #             best_config['prefill'] = result['prefill']
+-
+-    #         if result['TBT'] < min_decode_time:
+-    #             min_decode_time = result['TBT']
+-    #             best_config['decode'] = result['decode']
+-
+-    #     if 'prefill' in best_config and 'decode' in best_config:
+-    #         best_config['total_time'] = best_config['prefill']['time'] + best_config['decode']['time']
+-
+-    #     best_config.update(infer_config.__dict__)
+-    #     return best_config
+-
+     def estimate_cost_of_deepseek_prefill(self, infer_config: InferenceConfig, p_config: ParallelismConfig,
+                                           exec_config: ExecutionConfig) -> dict:
+         num_nodes = self.hw.number_of_ranks
+diff --git a/vllm/v1/worker/mock_gpu_model_runner.py b/vllm/v1/worker/mock_gpu_model_runner.py
+index 91b17bef5..1911c78b1 100644
+--- a/vllm/v1/worker/mock_gpu_model_runner.py
++++ b/vllm/v1/worker/mock_gpu_model_runner.py
+@@ -1618,6 +1618,13 @@ class GPUModelRunner_(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
+         cudagraph_runtime_mode, batch_descriptor = \
+             self.cudagraph_dispatcher.dispatch(batch_descriptor)
+ 
++        ## sefi
++        # [f"computed {self.requests[req_id].num_computed_tokens}, scheduled {scheduler_output.num_scheduled_tokens[req_id]}, num_tokens {self.requests[req_id].num_tokens}" 
++        #                       for req_id in self.input_batch.req_ids]
++        attn_metadata["cost"] = [(self.requests[req_id].num_computed_tokens, scheduler_output.num_scheduled_tokens[req_id], self.requests[req_id].num_tokens) 
++                              for req_id in self.input_batch.req_ids]
++
++        ##
+         # Run the model.
+         # Use persistent buffers for CUDA graphs.
+         with set_forward_context(
+diff --git a/vllm/v1/worker/mock_model_runner.py b/vllm/v1/worker/mock_model_runner.py
+index cedaa0326..4394ddd06 100644
+--- a/vllm/v1/worker/mock_model_runner.py
++++ b/vllm/v1/worker/mock_model_runner.py
+@@ -20,6 +20,7 @@ from vllm.v1.worker.mock_gpu_model_runner import GPUModelRunner_
+ from vllm.v1.engine.core import EngineCore
+ from vllm.v1.core.kv_cache_utils import (get_kv_cache_config, unify_kv_cache_configs)
+ from vllm.v1.worker.gpu_worker import init_worker_distributed_environment, Worker
++from .cost_model import InferenceConfig, ExecutionConfig, ParallelismConfig, ChunkContext
+ 
+ 
+ class GPURunnerModelWrapper(nn.Module):
+@@ -38,12 +39,18 @@ class GPURunnerModelWrapper(nn.Module):
+             first_layer_name = list(attn_metadata.keys())[0]
+             layer_metadata = attn_metadata[first_layer_name]
+ 
+-            num_reqs = layer_metadata.query_start_loc.shape[0] - 1
++            
++            num_reqs = layer_metadata.block_table.shape[0]
+ 
+-            query_start_loc_cpu = layer_metadata.query_start_loc.cpu()
+-            query_lens = query_start_loc_cpu[1:] - query_start_loc_cpu[:-1]
++            # query_start_loc_cpu = layer_metadata.query_start_loc.cpu()
++            # query_lens = query_start_loc_cpu[1:] - query_start_loc_cpu[:-1] # scheduled 
+ 
+-            seq_lens = layer_metadata.seq_lens
++            seq_lens = layer_metadata.seq_lens #(computed + scheduled)
++
++            ### computed, scheduled, total
++            workload = attn_metadata['cost']
++            decode_work = [w for w in workload if w[1] == 1]
++            prefil_work = [w for w in workload if w[1] > 1]
+ 
+         if get_pp_group().is_first_rank:
+             if inputs_embeds is not None:
+@@ -58,8 +65,26 @@ class GPURunnerModelWrapper(nn.Module):
+ 
+         aux_hidden_states = []
+         for idx, layer in enumerate(self.model.layers[self.model.start_layer:self.model.end_layer]):
++            if attn_metadata is None:
++                continue
+             if idx in self.model.aux_hidden_state_layers:
+                 aux_hidden_states.append(hidden_states + (residual if residual is not None else 0))
++            
++            sched = [w[1] for w in workload]
++            kv = [w[0] for w in workload]
++            # output = [w[1] - w[0] for w in workload]
++            # infer_config = InferenceConfig(batch_size=1, input_length=sum(sched),
++            #                                output_length=1, kv_length=kv)
++            input_len = sum(sched)
++            chunk_ctx = ChunkContext(
++            stage='prefill',
++            batch_size=len(sched),
++            chunk_size_act=sched,
++            chunk_size_kv=kv,
++        )
++            exec_config = ExecutionConfig(chunk_size=sum(sched), use_flash_attn=True, qkv_weights_concat=True)
++
++            p_config = ParallelismConfig(pp=1, tp=1)
+             # hidden_states = layer(hidden_states, seq_lens, query_lens)
+             # sleep(self.cost_model.estimate_layer_cost())
+ 
