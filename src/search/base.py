@@ -44,17 +44,30 @@ class BaseSearch(ABC):
         )
 
         # Attention Static Memory
-        q_a_proj = model_config.q_lora_rank * model_config.hidden_size
-        q_nope = (
-            model_config.num_attention_heads * 
-            model_config.qk_nope_head_dim * 
-            model_config.q_lora_rank
-        )
-        q_rope = (
-            model_config.num_attention_heads * 
-            model_config.qk_rope_head_dim * 
-            model_config.q_lora_rank
-        )
+        if model_config.q_lora_rank == 0:
+            q_a_proj = 0
+            q_nope = (
+                model_config.num_attention_heads *
+                model_config.qk_nope_head_dim *
+                model_config.hidden_size
+            )
+            q_rope = (
+                model_config.num_attention_heads * 
+                model_config.qk_rope_head_dim * 
+                model_config.hidden_size
+            )
+        else:
+            q_a_proj = model_config.q_lora_rank * model_config.hidden_size
+            q_nope = (
+                model_config.num_attention_heads * 
+                model_config.qk_nope_head_dim * 
+                model_config.q_lora_rank
+            )
+            q_rope = (
+                model_config.num_attention_heads * 
+                model_config.qk_rope_head_dim * 
+                model_config.q_lora_rank
+            )
         k_nope = model_config.kv_lora_rank * model_config.hidden_size
         k_rope = model_config.qk_rope_head_dim * model_config.hidden_size
         q_absorb = (
