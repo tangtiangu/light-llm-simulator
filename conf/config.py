@@ -14,6 +14,7 @@ class Config:
         max_attn_bs: int,
         min_die: int,
         max_die: int,
+        die_step: int,
         tpot:list[int],
         kv_len: list[int],
         micro_batch_num: list[int],
@@ -36,6 +37,7 @@ class Config:
             max_attn_bs: The max number of attention batch size to explore.
             min_die: The min number of die to explore.
             max_die: The max number of die to explore.
+            die_step: The step size of the die to explore.
             tpot: The target TPOT.
             kv_len: The input sequence length.
             micro_batch_num: The micro batch number.
@@ -54,7 +56,7 @@ class Config:
         self.max_attn_bs = max_attn_bs
         self.min_die = min_die
         self.max_die = max_die
-        self.die_step = self.aichip_config.num_dies_per_node
+        self.die_step = die_step
         self.tpot = tpot
         self.kv_len = kv_len
         self.micro_batch_num = micro_batch_num

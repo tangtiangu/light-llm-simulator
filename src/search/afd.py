@@ -4,7 +4,7 @@ import logging
 import math
 import os
 from conf.config import Config
-from conf.common import SEC_2_US, MIN_ROUTED_EXPERT_PER_DIE, MEMORY_THRESHOLD_RATIO, MS_2_US
+from conf.common import SEC_2_US, MIN_ROUTED_EXPERT_PER_DIE, MEMORY_THRESHOLD_RATIO, MS_2_US, BYTE_2_GB
 from src.search.base import BaseSearch
 from src.model.register import get_model, get_attention_family
 
@@ -69,12 +69,12 @@ class AfdSearch(BaseSearch):
                 kv_size, attn_static_memory, _, _ = self.compute_GQA_memory_size(self.config.model_config, attn_bs)
             attn_memory = kv_size * self.config.micro_batch_num + attn_static_memory
 
-            if attn_time > attn_latency_constraint or attn_memory > self.config.aichip_config.aichip_memory * MEMORY_THRESHOLD_RATIO:
+            if attn_time > attn_latency_constraint or attn_memory > self.config.aichip_config.aichip_memory * BYTE_2_GB * MEMORY_THRESHOLD_RATIO:
                 attn_bs_max = attn_bs
             else:
                 attn_bs_min = attn_bs
 
-        if attn_time > attn_latency_constraint or attn_memory > self.config.aichip_config.aichip_memory * MEMORY_THRESHOLD_RATIO:
+        if attn_time > attn_latency_constraint or attn_memory > self.config.aichip_config.aichip_memory * BYTE_2_GB * MEMORY_THRESHOLD_RATIO:
             attn_bs = attn_bs_min
             self.config.attn_bs = attn_bs
             attn = get_model(self.config)["attn"]
@@ -92,9 +92,9 @@ class AfdSearch(BaseSearch):
             attn_bs: Attention batch size for per micro batch, int.
         '''
         if get_attention_family(self.config.model_type) == "MLA":
-            _, _, _, per_router_expert_memory = self.compute_MLA_memory_size(self.config.model_config, attn_bs)
+            kv_size, attn_static_memory, mlp_static_memory, per_router_expert_memory = self.compute_MLA_memory_size(self.config.model_config, attn_bs)
         elif get_attention_family(self.config.model_type) == "GQA":
-            _, _, _, per_router_expert_memory = self.compute_GQA_memory_size(self.config.model_config, attn_bs)
+            kv_size, attn_static_memory, mlp_static_memory, per_router_expert_memory = self.compute_GQA_memory_size(self.config.model_config, attn_bs)
 
         # compute per dense layer time
         if self.config.model_config.num_layers > self.config.model_config.num_moe_layers:
@@ -148,7 +148,7 @@ class AfdSearch(BaseSearch):
                     self.config.tpot * MS_2_US * (1 + self.config.multi_token_ratio) / 
                     self.config.model_config.num_layers
                 )
-                if max(attn_time, moe_time) * self.config.micro_batch_num > latency_constraint:
+                if e2e_time_per_moe_layer > latency_constraint:
                     continue
 
                 e2e_time = (
@@ -167,22 +167,25 @@ class AfdSearch(BaseSearch):
                     f"ffn_die: {ffn_die}, total_die: {total_die}, "
                     f"attn_time: {attn_time:.2f}us, moe_time: {moe_time:.2f}us, "
                     f"dispatch_time: {dispatch_time:.2f}us, combine_time: {combine_time:.2f}us, "
-                    f"commu_time: {commu_time:.2f}us, e2e_time: {e2e_time:.2f}us, "
-                    f"latency_per_layer: {latency_constraint:.2f}us, latency:{self.config.tpot} ms"
+                    f"commu_time: {commu_time:.2f}us, e2e_time: {e2e_time:.2f}ms, "
                     f"e2e_time_per_dense_layer: {e2e_time_per_dense_layer:.2f}us, "
-                    f"e2e_time_per_moe_layer: {e2e_time_per_moe_layer:.2f}us, throughput: {throughput:.2f}"
+                    f"e2e_time_per_moe_layer: {e2e_time_per_moe_layer:.2f}us, throughput: {throughput:.2f} tokens/die/s, "
+                    f"kv_size:{kv_size} GB, attn_static_memory:{attn_static_memory} GB, "
+                    f"mlp_static_memory:{mlp_static_memory} GB, ffn_static_memory:{ffn_static_memory} GB"
                 )
 
                 self.perf_afd_results.append([
                     attn_bs, self.config.ffn_bs, self.config.kv_len, attn_die, ffn_die, total_die,
                     attn_time, moe_time, dispatch_time, combine_time, commu_time, e2e_time / MS_2_US,
-                    e2e_time_per_dense_layer, e2e_time_per_moe_layer, throughput
+                    e2e_time_per_dense_layer, e2e_time_per_moe_layer, throughput,
+                    kv_size, attn_static_memory, mlp_static_memory, ffn_static_memory
                 ])
 
         columns = [
             'attn_bs', 'ffn_bs', 'kv_len', 'attn_die', 'ffn_die', 'total_die',
-            'attn_time', 'moe_time', 'dispatch_time', 'combine_time', 'commu_time', 'e2e_time',
-            'e2e_time_per_dense_layer', 'e2e_time_per_moe_layer', 'throughput'
+            'attn_time(us)', 'moe_time(us)', 'dispatch_time(us)', 'combine_time(us)', 'commu_time(us)', 'e2e_time(ms)',
+            'e2e_time_per_dense_layer(us)', 'e2e_time_per_moe_layer(us)', 'throughput(tokens/die/s)',
+            'kv_size(GB)', 'attn_static_memory(GB)', 'mlp_static_memory(GB)', 'ffn_static_memory(GB)'
         ]
         df = pd.DataFrame(self.perf_afd_results, columns=columns)
 
@@ -192,7 +195,7 @@ class AfdSearch(BaseSearch):
         result_path = result_dir + file_name
         df.to_csv(result_path, index=False)
 
-        df_best = df.sort_values(by=['throughput'], ascending=False).drop_duplicates(subset=['total_die'])
+        df_best = df.sort_values(by=['throughput(tokens/die/s)'], ascending=False).drop_duplicates(subset=['total_die'])
         df_best = df_best.sort_values(by=['total_die'], ascending=True)
         best_result_dir = result_dir + "best/"
         best_file_name = f"{self.config.device_type.name}-{self.config.model_type.name}-tpot{int(self.config.tpot)}-kv_len{self.config.kv_len}.csv"

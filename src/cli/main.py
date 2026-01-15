@@ -15,6 +15,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         max_attn_bs: The max number of attention batch size to explore.
         min_die: The min number of die to explore.
         max_die: The max number of die to explore.
+        die_step: The step size of the die to explore.
         tpot: The target TPOT.
         kv_len: The input sequence length.
         micro_batch_num: The micro batch number.
@@ -30,6 +31,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument('--max_attn_bs', type=int, default=1000)
     parser.add_argument('--min_die', type=int, default=16)
     parser.add_argument('--max_die', type=int, default=768)
+    parser.add_argument('--die_step', type=int, default=16)
     parser.add_argument('--tpot', nargs='+', type=int, default=[20, 50, 70, 100, 150])
     parser.add_argument('--kv_len', nargs='+', type=int, default=[2048, 4096, 8192, 16384, 131072])
     parser.add_argument('--micro_batch_num', nargs='+', type=int, default=[2, 3])
@@ -56,6 +58,7 @@ def run_search(args):
                         max_attn_bs=args.max_attn_bs,
                         min_die=args.min_die,
                         max_die=args.max_die,
+                        die_step=args.die_step,
                         tpot=tpot,
                         kv_len=kv_len,
                         micro_batch_num=mbn,
@@ -77,6 +80,7 @@ def run_search(args):
                     max_attn_bs=args.max_attn_bs,
                     min_die=args.min_die,
                     max_die=args.max_die,
+                    die_step=args.die_step,
                     tpot=tpot,
                     kv_len=kv_len,
                     micro_batch_num=1,
