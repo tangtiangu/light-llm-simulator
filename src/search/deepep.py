@@ -83,10 +83,10 @@ class DeepEpSearch(BaseSearch):
                     ffn_bs * self.config.model_config.hidden_size * 
                     self.config.model_config.num_layers * BYTE_2_GB
                 )
+                ffn_static_memory = per_router_expert_memory * routed_expert_per_die
                 total_memory = (
                     kv_size * self.config.micro_batch_num + attn_static_memory + 
-                    mlp_static_memory + ffn_dynamic_memory +
-                    per_router_expert_memory * routed_expert_per_die
+                    mlp_static_memory + ffn_dynamic_memory + ffn_static_memory
                 )
                 e2e_time_per_moe_layer = attn_time + moe_time + commu_time
                 e2e_time = e2e_time_per_moe_layer * self.config.model_config.num_moe_layers
@@ -100,6 +100,7 @@ class DeepEpSearch(BaseSearch):
                     e2e_time = e2e_time + e2e_time_per_dense_layer * self.config.model_config.first_k_dense_replace
                 else:
                     mlp_time = 0.0
+                    e2e_time_per_dense_layer = 0.0
                 if (e2e_time > latency_constraint or 
                     total_memory > self.config.aichip_config.aichip_memory * BYTE_2_GB * MEMORY_THRESHOLD_RATIO):
                     attn_bs_max = attn_bs
@@ -113,20 +114,26 @@ class DeepEpSearch(BaseSearch):
             logging.info(
                 f"attn_bs:{attn_bs}, ffn_bs:{ffn_bs}, "
                 f"kv_len:{self.config.kv_len}, total_die:{total_die}, "
-                f"attn_time:{attn_time}, mlp_time:{mlp_time}, "
-                f"moe_time:{moe_time}, commu_time:{commu_time}, "
-                f"dispatch_time:{dispatch_time}, combine_time:{combine_time}, "
-                f"e2e_time:{e2e_time}, throughput:{throughput}"
+                f"attn_time:{attn_time} us, moe_time:{moe_time} us, "
+                f"commu_time:{commu_time} us, dispatch_time:{dispatch_time} us, combine_time:{combine_time} us, "
+                f"e2e_time:{e2e_time} ms, throughput:{throughput} tokens/die/s, "
+                f"e2e_time_per_dense_layer:{e2e_time_per_dense_layer} us, e2e_time_per_moe_layer:{e2e_time_per_moe_layer} us, "
+                f"kv_size:{kv_size} GB, attn_static_memory:{attn_static_memory} GB, "
+                f"mlp_static_memory:{mlp_static_memory} GB, ffn_static_memory:{ffn_static_memory} GB"
             )
 
             self.perf_deepep_results.append([
-                attn_bs, ffn_bs, self.config.kv_len, total_die, attn_time, moe_time,
-                commu_time, dispatch_time, combine_time, e2e_time, throughput
+                attn_bs, ffn_bs, self.config.kv_len, total_die,
+                attn_time, moe_time, dispatch_time, combine_time, commu_time, e2e_time,
+                e2e_time_per_dense_layer, e2e_time_per_moe_layer, throughput,
+                kv_size, attn_static_memory, mlp_static_memory, ffn_static_memory
             ])
 
         columns = [
-            'attn_bs', 'ffn_bs', 'kv_len', 'total_die', 'attn_time', 
-            'moe_time', 'commu_time', 'dispatch_time', 'combine_time', 'e2e_time', 'throughput'
+            'attn_bs', 'ffn_bs', 'kv_len', 'total_die', 'attn_time(us)', 
+            'moe_time(us)', 'commu_time(us)', 'dispatch_time(us)', 'combine_time(us)', 'e2e_time(ms)',
+            'e2e_time_per_dense_layer(us)', 'e2e_time_per_moe_layer(us)', 'throughput(tokens/die/s)',
+            'kv_size(GB)', 'attn_static_memory(GB)', 'mlp_static_memory(GB)', 'ffn_static_memory(GB)'
         ]
         df = pd.DataFrame(self.perf_deepep_results, columns=columns)
         result_dir = f"data/deepep/"

@@ -10,6 +10,11 @@ from src.model.qwen235_decode import (
     Qwen235DecodeAttn,
     Qwen235DecodeMoe,
 )
+from src.model.deepseekv2_lite_decode import (
+    DeepSeekV2LiteDecodeAttn,
+    DeepSeekV2LiteDecodeMLP,
+    DeepSeekV2LiteDecodeMoe,
+)
 
 
 def get_model(
@@ -34,6 +39,11 @@ def get_model(
         attn = Qwen235DecodeAttn(config)
         moe = Qwen235DecodeMoe(config)
         model = {"attn": attn, "moe": moe}
+    if config.model_type == ModelType.DEEPSEEK_V2_LITE:
+        attn = DeepSeekV2LiteDecodeAttn(config)
+        mlp = DeepSeekV2LiteDecodeMLP(config)
+        moe = DeepSeekV2LiteDecodeMoe(config)
+        model = {"attn": attn, "mlp": mlp, "moe": moe}
     return model
 
 def get_attention_family(
@@ -48,7 +58,7 @@ def get_attention_family(
         The attention mechanism of the specified model.
     '''
     assert(model_type in ModelType), f"unsupport model {model_type}"
-    if model_type == ModelType.DEEPSEEK_V3:
+    if model_type == ModelType.DEEPSEEK_V3 or model_type == ModelType.DEEPSEEK_V2_LITE:
         return "MLA"
     if model_type == ModelType.QWEN3_235B:
         return "GQA"

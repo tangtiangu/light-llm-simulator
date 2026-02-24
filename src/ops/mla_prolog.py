@@ -14,27 +14,48 @@ class OpMlaProlog:
         self.config = config
         self.attn_bs = config.attn_bs * config.seq_len
         # compute query, key, value
-        self.mla_q_a_proj = OpGeMatmul(
-            "mla_q_a_proj",
-            self.attn_bs,
-            self.model_config.hidden_size,
-            self.model_config.q_lora_rank,
-            self.aichip_config
-        )
-        self.mla_q_nope = OpGeMatmul(
-            "mla_q_nope",
-            self.attn_bs,
-            self.model_config.q_lora_rank,
-            self.model_config.num_attention_heads*self.model_config.qk_nope_head_dim / config.attn_tensor_parallel,
-            self.aichip_config
-        )
-        self.mla_q_rope = OpGeMatmul(
-            "mla_q_rope",
-            self.attn_bs,
-            self.model_config.q_lora_rank,
-            self.model_config.num_attention_heads * self.model_config.qk_rope_head_dim / config.attn_tensor_parallel,
-            self.aichip_config
-        )
+        if self.model_config.q_lora_rank == 0:
+            self.mla_q_a_proj = OpGeMatmul(
+                "mla_q_a_proj",
+                0, 0, 0,
+                self.aichip_config
+            )
+            self.mla_q_nope = OpGeMatmul(
+                "mla_q_nope",
+                self.attn_bs,
+                self.model_config.hidden_size,
+                self.model_config.num_attention_heads*self.model_config.qk_nope_head_dim / config.attn_tensor_parallel,
+                self.aichip_config
+            )
+            self.mla_q_rope = OpGeMatmul(
+                "mla_q_rope",
+                self.attn_bs,
+                self.model_config.hidden_size,
+                self.model_config.num_attention_heads * self.model_config.qk_rope_head_dim / config.attn_tensor_parallel,
+                self.aichip_config
+            )
+        else:
+            self.mla_q_a_proj = OpGeMatmul(
+                "mla_q_a_proj",
+                self.attn_bs,
+                self.model_config.hidden_size,
+                self.model_config.q_lora_rank,
+                self.aichip_config
+            )
+            self.mla_q_nope = OpGeMatmul(
+                "mla_q_nope",
+                self.attn_bs,
+                self.model_config.q_lora_rank,
+                self.model_config.num_attention_heads*self.model_config.qk_nope_head_dim / config.attn_tensor_parallel,
+                self.aichip_config
+            )
+            self.mla_q_rope = OpGeMatmul(
+                "mla_q_rope",
+                self.attn_bs,
+                self.model_config.q_lora_rank,
+                self.model_config.num_attention_heads * self.model_config.qk_rope_head_dim / config.attn_tensor_parallel,
+                self.aichip_config
+            )
         self.mla_k_nope = OpGeMatmul(
             "mla_k_nope",
             self.attn_bs,

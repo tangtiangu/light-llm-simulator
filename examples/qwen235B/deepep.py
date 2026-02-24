@@ -14,6 +14,7 @@ def add_default_mode_arguments(parser: argparse.ArgumentParser):
     parser.add_argument('--max_attn_bs', type=int, default=1000)
     parser.add_argument('--min_die', type=int, default=16)
     parser.add_argument('--max_die', type=int, default=768)
+    parser.add_argument('--die_step', type=int, default=16)
     parser.add_argument('--tpot', nargs='+', type=int, default=[50])
     parser.add_argument('--kv_len', nargs='+', type=int, default=[4096])
     parser.add_argument('--micro_batch_num', nargs='+', type=int, default=[3])
@@ -34,6 +35,7 @@ def run_search(args):
                     max_attn_bs=args.max_attn_bs,
                     min_die=args.min_die,
                     max_die=args.max_die,
+                    die_step=args.die_step,
                     tpot=tpot,
                     kv_len=kv_len,
                     micro_batch_num=mbn,
