@@ -77,10 +77,6 @@
 </template>
 
 <script>
-import { ref, watch, onMounted } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
-import { useApi } from '../../composables/useApi.js';
-import { useStore } from '../../composables/useStore.js';
-
 const DEFAULT_SELECTION = {
   servingMode: 'AFD',
   deviceType: 'ASCENDA3_Pod',
@@ -141,6 +137,8 @@ function normalizeSelection(selection, includeTotalDie = false) {
 export default {
   emits: ['csv-loaded'],
   setup(props, { emit }) {
+    const { ref, watch, onMounted } = window.LightLLMRuntime.Vue;
+    const { useApi, useStore } = window.LightLLMRuntime;
     const api = useApi();
     const { getCsvSelection, setCsvSelection } = useStore();
     const selection = ref({
@@ -214,12 +212,15 @@ export default {
     linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.95)),
     radial-gradient(circle at top right, rgba(13, 148, 136, 0.08), transparent 35%);
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+  min-width: 0;
+  width: 100%;
 }
 
 .section-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  flex-wrap: wrap;
   gap: 16px;
   margin-bottom: 16px;
 }
@@ -263,12 +264,14 @@ h3 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 12px;
+  min-width: 0;
 }
 
 .field {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 
 .field span {
@@ -279,6 +282,7 @@ h3 {
 
 select {
   width: 100%;
+  min-width: 0;
   border: 1px solid #cbd5e1;
   border-radius: 12px;
   padding: 10px 12px;

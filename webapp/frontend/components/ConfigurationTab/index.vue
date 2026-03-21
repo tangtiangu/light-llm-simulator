@@ -9,8 +9,6 @@
 </template>
 
 <script>
-import { computed } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
-import { useStore } from '../../composables/useStore.js';
 import ModelConfig from './ModelConfig.vue';
 import HardwareConfig from './HardwareConfig.vue';
 
@@ -22,6 +20,8 @@ const DEFAULT_SELECTION = {
 export default {
   components: { ModelConfig, HardwareConfig },
   setup() {
+    const { computed } = window.LightLLMRuntime.Vue;
+    const { useStore } = window.LightLLMRuntime;
     const { runHistory } = useStore();
 
     const selection = computed(() => ({
@@ -36,11 +36,23 @@ export default {
 
 <style scoped>
 .configuration-tab {
-  max-width: 700px;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  width: 100%;
+  min-width: 0;
 }
 
 .selection-summary {
   color: #475569;
-  margin-bottom: 16px;
+  grid-column: 1 / -1;
+  margin-bottom: 4px;
+}
+
+@media (max-width: 1080px) {
+  .configuration-tab {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

@@ -35,12 +35,10 @@
 </template>
 
 <script>
-import { ref, computed, watch, onUnmounted } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
-import { useApi } from '../../composables/useApi.js';
-import { useStore } from '../../composables/useStore.js';
-
 export default {
   setup() {
+    const { ref, computed, watch, onUnmounted } = window.LightLLMRuntime.Vue;
+    const { useApi, useStore } = window.LightLLMRuntime;
     const api = useApi();
     const { runHistory } = useStore();
     const activeRunId = computed(() => runHistory.value[0] && runHistory.value[0].id ? runHistory.value[0].id : null);
@@ -152,12 +150,17 @@ export default {
 
 <style scoped>
 .run-status {
-  max-width: 600px;
+  width: 100%;
+  min-width: 0;
+  position: sticky;
+  top: 12px;
 }
 
 .status-card {
   background: #f8fafc;
   border-radius: 8px;
+  border: 1px solid #d8e0ea;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
   padding: 16px;
   margin-top: 16px;
 }
@@ -231,8 +234,18 @@ export default {
 }
 
 .no-run {
+  border: 1px dashed #cbd5e1;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #f8fafc, #fff);
+  color: #64748b;
+  margin-top: 16px;
+  padding: 36px 24px;
   text-align: center;
-  padding: 40px;
-  color: #9ca3af;
+}
+
+@media (max-width: 1080px) {
+  .run-status {
+    position: static;
+  }
 }
 </style>

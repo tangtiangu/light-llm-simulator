@@ -33,8 +33,6 @@
 </template>
 
 <script>
-import { reactive, watch } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
-
 function createFilters() {
   return {
     min_die: null,
@@ -64,6 +62,7 @@ function normalizeFilters(filters) {
 export default {
   emits: ['filter-change'],
   setup(props, { emit }) {
+    const { reactive, watch } = window.LightLLMRuntime.Vue;
     const filters = reactive(createFilters());
 
     const resetFilters = () => {
@@ -93,12 +92,15 @@ export default {
   padding: 18px 20px;
   background: linear-gradient(180deg, #ffffff, #f8fafc);
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+  min-width: 0;
+  width: 100%;
 }
 
 .section-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  flex-wrap: wrap;
   gap: 16px;
   margin-bottom: 14px;
 }
@@ -136,12 +138,14 @@ h4 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
+  min-width: 0;
 }
 
 .field {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 
 .field span {
@@ -152,10 +156,21 @@ h4 {
 
 input {
   width: 100%;
+  min-width: 0;
   border: 1px solid #cbd5e1;
   border-radius: 12px;
   padding: 10px 12px;
   background: #fff;
   color: #0f172a;
+}
+
+@media (max-width: 720px) {
+  .section-header {
+    align-items: stretch;
+  }
+
+  .btn-ghost {
+    width: 100%;
+  }
 }
 </style>

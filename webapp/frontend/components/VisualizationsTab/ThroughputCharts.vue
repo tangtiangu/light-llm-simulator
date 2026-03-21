@@ -116,10 +116,6 @@
 </template>
 
 <script>
-import { ref, reactive, onMounted } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
-import { useApi } from '../../composables/useApi.js';
-import { useStore } from '../../composables/useStore.js';
-
 const DEFAULT_PARAMS = {
   deviceType: 'ASCENDA3_Pod',
   modelType: 'DEEPSEEK_V3',
@@ -153,6 +149,8 @@ const KV_LEN_OPTIONS = [2048, 4096, 8192, 16384, 131072];
 
 export default {
   setup() {
+    const { ref, reactive, onMounted } = window.LightLLMRuntime.Vue;
+    const { useApi, useStore } = window.LightLLMRuntime;
     const api = useApi();
     const { getCsvSelection, setCsvSelection } = useStore();
     const params = reactive({

@@ -22,7 +22,6 @@
 </template>
 
 <script>
-import { useStore } from "../composables/useStore.js";
 import RunExperimentTab from "./RunExperimentTab/index.vue";
 import ConfigurationTab from "./ConfigurationTab/index.vue";
 import ResultsTab from "./ResultsTab/index.vue";
@@ -36,6 +35,7 @@ export default {
     VisualizationsTab,
   },
   setup() {
+    const { useStore } = window.LightLLMRuntime;
     const { currentTab, setTab } = useStore();
 
     const tabs = [

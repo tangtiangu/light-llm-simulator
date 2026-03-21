@@ -61,8 +61,6 @@
 </template>
 
 <script>
-import { reactive, ref, computed, watch } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
-
 const PAGE_SIZE = 20;
 
 function isBlank(value) {
@@ -87,6 +85,7 @@ export default {
   },
   emits: ['compare'],
   setup(props, { emit }) {
+    const { reactive, ref, computed, watch } = window.LightLLMRuntime.Vue;
     const page = ref(1);
     const sortCol = ref('total_die');
     const sortDir = ref('desc');
@@ -281,6 +280,8 @@ export default {
   padding: 18px 20px;
   background: #fff;
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+  min-width: 0;
+  width: 100%;
 }
 
 .empty-state {
@@ -293,14 +294,16 @@ export default {
 }
 
 .table-scroll {
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
   border-radius: 14px;
 }
 
 .data-table {
-  width: 100%;
+  width: max-content;
   border-collapse: collapse;
-  min-width: 760px;
+  min-width: 100%;
 }
 
 .data-table th,
@@ -344,6 +347,7 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
   gap: 16px;
   margin-top: 16px;
 }

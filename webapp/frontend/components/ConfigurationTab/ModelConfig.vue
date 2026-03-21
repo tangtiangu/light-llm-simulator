@@ -60,9 +60,6 @@
 </template>
 
 <script>
-import { ref, watch } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
-import { useApi } from '../../composables/useApi.js';
-
 const DEFAULT_MODEL_TYPE = 'deepseek-ai/DeepSeek-V3';
 
 export default {
@@ -73,6 +70,8 @@ export default {
     }
   },
   setup(props) {
+    const { ref, watch } = window.LightLLMRuntime.Vue;
+    const { useApi } = window.LightLLMRuntime;
     const api = useApi();
 
     const config = ref(null);
@@ -102,7 +101,8 @@ export default {
 
 <style scoped>
 .config-section {
-  max-width: 600px;
+  width: 100%;
+  min-width: 0;
 }
 
 .loading {
@@ -138,6 +138,7 @@ export default {
 
 .config-item {
   background: #f8fafc;
+  border: 1px solid #d8e0ea;
   padding: 12px;
   border-radius: 6px;
 }

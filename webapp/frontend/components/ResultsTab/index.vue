@@ -21,8 +21,6 @@
 </template>
 
 <script>
-import { ref, computed } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
-import { useStore } from '../../composables/useStore.js';
 import CsvSelector from './CsvSelector.vue';
 import ResultsFilter from './ResultsFilter.vue';
 import ResultsTable from './ResultsTable.vue';
@@ -44,6 +42,8 @@ export default {
     ResultsTable
   },
   setup() {
+    const { ref, computed } = window.LightLLMRuntime.Vue;
+    const { useStore } = window.LightLLMRuntime;
     const { setCsvSelection, setTab } = useStore();
     const csvData = ref([]);
     const currentFilters = ref({});
@@ -109,6 +109,13 @@ export default {
 .results-tab {
   display: grid;
   gap: 16px;
+  min-width: 0;
+  width: 100%;
+}
+
+.results-tab > * {
+  min-width: 0;
+  width: 100%;
 }
 
 .results-meta {

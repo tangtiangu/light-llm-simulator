@@ -108,10 +108,6 @@
 </template>
 
 <script>
-import { ref } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
-import { useApi } from '../../composables/useApi.js';
-import { useStore } from '../../composables/useStore.js';
-
 const MODEL_OPTIONS = [
   { value: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek V3' },
   { value: 'Qwen/Qwen3-235B-A22B', label: 'Qwen3-235B-A22B' },
@@ -131,6 +127,8 @@ const DEVICE_OPTIONS = [
 
 export default {
   setup() {
+    const { ref } = window.LightLLMRuntime.Vue;
+    const { useApi, useStore } = window.LightLLMRuntime;
     const api = useApi();
     const { addRun: addToHistory } = useStore();
 
@@ -203,7 +201,8 @@ export default {
 
 <style scoped>
 .run-form {
-  max-width: 600px;
+  width: 100%;
+  min-width: 0;
 }
 
 .section {
@@ -305,5 +304,15 @@ details[open] summary::after {
   padding: 12px;
   border-radius: 6px;
   margin-top: 16px;
+}
+
+@media (max-width: 720px) {
+  .field-row {
+    grid-template-columns: 1fr;
+  }
+
+  button {
+    width: 100%;
+  }
 }
 </style>
