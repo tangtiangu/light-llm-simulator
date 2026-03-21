@@ -2,13 +2,15 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Refactor web frontend to Vue.js 3 SPA with tab-based navigation, real-time progress, filterable results, and interactive visualizations while keeping FastAPI backend unchanged.
+**Goal:** Refactor web frontend to Vue.js 3 SPA with tab-based navigation, real-time progress, filterable results (within selected CSV), and static image visualizations while keeping FastAPI backend unchanged.
 
-**Architecture:** Vue 3 (Composition API) via CDN with browser-based SFC compiler, component-based structure, reactive state management, Chart.js for visualizations.
+**Architecture:** Vue 3 (Composition API) via CDN with browser-based SFC loader, component-based structure, reactive state management.
 
-**Tech Stack:** Vue 3, @vue/compiler-sfc (browser-based), Chart.js, localStorage, FastAPI (unchanged)
+**Tech Stack:** Vue 3, vue3-sfc-loader (browser-based SFC compilation), localStorage, FastAPI (unchanged)
 
-**Build Approach:** Vue Single-File Components (.vue) compiled on-demand in browser using @vue/compiler-sfc. No package.json or npm build step required.
+**Build Approach:** Vue Single-File Components (.vue) compiled on-demand in browser using vue3-sfc-loader. No package.json or npm build step required.
+
+**Results Tab Design:** Filter and sort within a SINGLE selected CSV file. The backend does not provide a way to query available CSV files or filter across runs/models/devices. Each simulation produces CSV files named by pattern `{DeviceType.name}-{ModelType.name}-tpot{tpot}-kv_len{kvLen}.csv`.
 
 ---
 
@@ -23,10 +25,12 @@ git worktree add ../llm-ui-refactor -b feature/web-ui-refactor
 cd ../llm-ui-refactor
 ```
 
+**Note:** All file edits and commits below should happen in the worktree checkout (`../llm-ui-refactor`). If you prefer absolute paths, use the corresponding worktree path instead of the original clone.
+
 **Step 2: Verify backend starts**
 
 ```bash
-cd /Users/elle/claude-code/light-llm-simulator
+cd ../llm-ui-refactor
 uvicorn webapp.backend.main:app --host 127.0.0.1 --port 8000 &
 ```
 
@@ -64,7 +68,7 @@ git commit -m "chore: setup worktree for web UI refactor"
 **Step 1: Backup current HTML**
 
 ```bash
-cd /Users/elle/claude-code/light-llm-simulator
+cd ../llm-ui-refactor
 mv webapp/frontend/index.html webapp/frontend/index_old.html
 ```
 
@@ -90,7 +94,7 @@ git commit -m "refactor: backup current HTML implementation"
 **Files:**
 - Create: `webapp/frontend/index.html`
 
-**Step 1: Write Vue 3 CDN-based HTML with browser compiler**
+**Step 1: Write Vue 3 CDN-based HTML (no inline app)**
 
 ```html
 <!doctype html>
@@ -99,24 +103,21 @@ git commit -m "refactor: backup current HTML implementation"
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Light LLM Simulator</title>
-  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-  <script src="https://unpkg.com/@vue/compiler-sfc@3/dist/compiler-sfc.esm-browser.prod.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <link rel="stylesheet" href="styles/main.css">
+  <link rel="stylesheet" href="/static/styles/main.css">
 </head>
 <body>
   <div id="app"></div>
-  <script type="module" src="app.js"></script>
+  <script type="module" src="/static/app.js"></script>
 </body>
 </html>
 ```
 
-**Note:** The `@vue/compiler-sfc` script loads the Vue Single-File Component (SFC) compiler that runs in the browser, enabling .vue components without a build step.
+**Note:** The backend serves `index.html` at `/`, but frontend files under `webapp/frontend/` are mounted at `/static`. Use absolute `/static/...` URLs for CSS, `app.js`, and the top-level SFC loader entrypoint.
 
 **Step 2: Create styles directory**
 
 ```bash
-mkdir -p /Users/elle/claude-code/light-llm-simulator/webapp/frontend/styles
+mkdir -p webapp/frontend/styles
 ```
 
 **Step 3: Commit**
@@ -389,7 +390,7 @@ export function useApi() {
       return fetchJson(`/results?${query}`);
     },
 
-    // Fetch CSV results
+    // Fetch rows from a single CSV file
     fetchCsvResults: async (params) => {
       const query = new URLSearchParams(params);
       return fetchJson(`/fetch_csv_results?${query}`);
@@ -407,31 +408,40 @@ git commit -m "feat: add API composable"
 
 ---
 
-### Task 5: Create Store Composable
+### Task 5: Create Store Composable (Singleton Pattern)
 
 **Files:**
 - Create: `webapp/frontend/composables/useStore.js`
 
-**Step 1: Write store for global state**
+**Step 1: Write store for global state with singleton pattern**
 
 ```javascript
-import { ref, computed, watch } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
+import { ref } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
 
+// IMPORTANT: Module-level refs for shared state across all components
 const STORAGE_KEY_TAB = 'llm-sim-current-tab';
 const STORAGE_KEY_HISTORY = 'llm-sim-run-history';
+const STORAGE_KEY_CSV_SELECTION = 'llm-sim-csv-selection';
+
+// Singleton state - declared outside of function so all calls share the same refs
+const currentTab = ref(localStorage.getItem(STORAGE_KEY_TAB) || 'run');
+const runHistory = ref(JSON.parse(localStorage.getItem(STORAGE_KEY_HISTORY) || '[]'));
+const csvSelection = ref({
+  servingMode: 'AFD',
+  deviceType: 'ASCENDA3_Pod',
+  modelType: 'DEEPSEEK_V3',
+  tpot: 50,
+  kvLen: 4096,
+  microBatchNum: 3,
+  totalDie: 128
+});
+const tabs = ['run', 'config', 'results', 'visualizations'];
 
 export function useStore() {
-  // Tab state
-  const currentTab = ref(localStorage.getItem(STORAGE_KEY_TAB) || 'run');
-  const tabs = ['run', 'config', 'results', 'visualizations'];
-
   const setTab = (tab) => {
     currentTab.value = tab;
     localStorage.setItem(STORAGE_KEY_TAB, tab);
   };
-
-  // Run history
-  const runHistory = ref(JSON.parse(localStorage.getItem(STORAGE_KEY_HISTORY) || '[]'));
 
   const addRun = (runId, params) => {
     runHistory.value.unshift({ id: runId, params, timestamp: Date.now() });
@@ -446,19 +456,32 @@ export function useStore() {
     localStorage.removeItem(STORAGE_KEY_HISTORY);
   };
 
-  // Initialize from storage
-  currentTab.value = localStorage.getItem(STORAGE_KEY_TAB) || 'run';
+  const setCsvSelection = (selection) => {
+    csvSelection.value = { ...csvSelection.value, ...selection };
+    localStorage.setItem(STORAGE_KEY_CSV_SELECTION, JSON.stringify(csvSelection.value));
+  };
+
+  const getCsvSelection = () => {
+    const stored = localStorage.getItem(STORAGE_KEY_CSV_SELECTION);
+    if (stored) {
+      csvSelection.value = JSON.parse(stored);
+    }
+    return csvSelection.value;
+  };
 
   return {
-    // Tabs
+    // Tabs (shared refs)
     currentTab,
     tabs,
     setTab,
-    isTabActive: (tab) => computed(() => currentTab.value === tab),
-    // History
+    // History (shared refs)
     runHistory,
     addRun,
-    clearHistory
+    clearHistory,
+    // CSV selection (shared refs)
+    csvSelection,
+    setCsvSelection,
+    getCsvSelection
   };
 }
 ```
@@ -467,7 +490,7 @@ export function useStore() {
 
 ```bash
 git add webapp/frontend/composables/useStore.js
-git commit -m "feat: add store composable"
+git commit -m "feat: add store composable with singleton pattern and CSV selection"
 ```
 
 ---
@@ -521,29 +544,44 @@ git commit -m "feat: add localStorage composable"
 **Files:**
 - Create: `webapp/frontend/components/TabManager.vue`
 
-**Step 1: Write tab navigation component**
+**Step 1: Write tab navigation component with registered child components**
 
 ```html
 <template>
-  <div class="tab-bar">
-    <button
-      v-for="tab in tabs"
-      :key="tab.id"
-      :class="['tab-btn', { active: currentTab === tab.id }]"
-      @click="setTab(tab.id)"
-    >
-      {{ tab.label }}
-    </button>
-  </div>
-  <div class="tab-content">
-    <slot></slot>
+  <div>
+    <div class="tab-bar">
+      <button
+        v-for="tab in tabs"
+        :key="tab.id"
+        :class="['tab-btn', { active: currentTab === tab.id }]"
+        @click="setTab(tab.id)"
+      >
+        {{ tab.label }}
+      </button>
+    </div>
+    <div class="tab-content">
+      <RunExperimentTab v-if="currentTab === 'run'" />
+      <ConfigurationTab v-if="currentTab === 'config'" />
+      <ResultsTab v-if="currentTab === 'results'" />
+      <VisualizationsTab v-if="currentTab === 'visualizations'" />
+    </div>
   </div>
 </template>
 
 <script>
 import { useStore } from '../composables/useStore.js';
+import RunExperimentTab from './RunExperimentTab/index.vue';
+import ConfigurationTab from './ConfigurationTab/index.vue';
+import ResultsTab from './ResultsTab/index.vue';
+import VisualizationsTab from './VisualizationsTab/index.vue';
 
 export default {
+  components: {
+    RunExperimentTab,
+    ConfigurationTab,
+    ResultsTab,
+    VisualizationsTab
+  },
   setup() {
     const { currentTab, setTab } = useStore();
 
@@ -564,7 +602,7 @@ export default {
 
 ```bash
 git add webapp/frontend/components/TabManager.vue
-git commit -m "feat: add TabManager component"
+git commit -m "feat: add TabManager component with registered child components"
 ```
 
 ---
@@ -680,14 +718,18 @@ git commit -m "feat: add TabManager component"
       </div>
     </details>
 
-    <button class="btn btn-primary" @click="startRun" :disabled="isSubmitting">
+    <div v-if="error" class="error-message">
+      {{ error }}
+    </div>
+
+    <button class="btn btn-primary" @click="handleSubmit" :disabled="isSubmitting">
       {{ isSubmitting ? 'Starting...' : 'Start Run' }}
     </button>
   </div>
 </template>
 
 <script>
-import { ref, computed } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
+import { ref } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
 import { useApi } from '../../composables/useApi.js';
 import { useStore } from '../../composables/useStore.js';
 
@@ -710,7 +752,7 @@ const DEVICE_OPTIONS = [
 
 export default {
   setup() {
-    const { startRun, addRun } = useApi();
+    const api = useApi();
     const { setTab, addRun: addToHistory } = useStore();
 
     const form = ref({
@@ -740,7 +782,7 @@ export default {
     const isSubmitting = ref(false);
     const error = ref(null);
 
-    const startRun = async () => {
+    const handleSubmit = async () => {
       isSubmitting.value = true;
       error.value = null;
 
@@ -752,7 +794,7 @@ export default {
           micro_batch_num: parseList(mbnInput.value)
         };
 
-        const result = await startRun(payload);
+        const result = await api.startRun(payload);
         addToHistory(result.run_id, payload);
         setTab('results');
       } catch (err) {
@@ -771,7 +813,7 @@ export default {
       deviceOptions: DEVICE_OPTIONS,
       isSubmitting,
       error,
-      startRun,
+      handleSubmit,
       parseList
     };
   }
@@ -851,12 +893,12 @@ details[open] summary::after {
 
 ```bash
 git add webapp/frontend/components/RunExperimentTab/RunForm.vue
-git commit -m "feat: add RunForm component"
+git commit -m "feat: add RunForm component with fixed naming"
 ```
 
 ---
 
-### Task 9: Create RunStatus Component
+### Task 9: Create RunStatus Component (FIXED: react to active run changes)
 
 **Files:**
 - Create: `webapp/frontend/components/RunExperimentTab/RunStatus.vue`
@@ -901,15 +943,17 @@ git commit -m "feat: add RunForm component"
 </template>
 
 <script>
-import { ref, computed, onMounted, onUnmounted } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
+import { ref, computed, watch, onUnmounted } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
+import { useApi } from '../../composables/useApi.js';
 import { useStore } from '../../composables/useStore.js';
 
 export default {
   setup() {
+    const api = useApi();
     const { runHistory } = useStore();
     const activeRunId = computed(() => runHistory.value[0]?.id || null);
 
-    const runId = ref(activeRunId.value);
+    const runId = ref(null);
     const isDone = ref(false);
     const logs = ref([]);
     const currentPhase = ref('Initializing');
@@ -936,8 +980,7 @@ export default {
       if (!runId.value) return;
 
       try {
-        const response = await fetch(`/api/logs/${runId.value}`);
-        const data = await response.json();
+        const data = await api.getLogs(runId.value);
         logs.value = (data.log || '').split('\n').filter(Boolean);
 
         // Detect current phase
@@ -957,8 +1000,7 @@ export default {
       if (!runId.value) return;
 
       try {
-        const response = await fetch(`/api/status/${runId.value}`);
-        const data = await response.json();
+        const data = await api.getStatus(runId.value);
 
         if (data.done) {
           isDone.value = true;
@@ -971,6 +1013,18 @@ export default {
       }
     };
 
+    const startPolling = () => {
+      stopPolling();
+      if (!runId.value) return;
+
+      pollLogs();
+      pollStatus();
+      pollInterval = setInterval(() => {
+        pollLogs();
+        pollStatus();
+      }, 3000);
+    };
+
     const stopPolling = () => {
       if (pollInterval) {
         clearInterval(pollInterval);
@@ -978,16 +1032,18 @@ export default {
       }
     };
 
-    onMounted(() => {
-      if (runId.value) {
-        pollLogs();
-        pollStatus();
-        pollInterval = setInterval(() => {
-          pollLogs();
-          pollStatus();
-        }, 3000);
+    watch(activeRunId, (nextRunId) => {
+      stopPolling();
+      runId.value = nextRunId;
+      logs.value = [];
+      isDone.value = false;
+      currentPhase.value = nextRunId ? 'Initializing' : 'Idle';
+      progressPercent.value = 0;
+
+      if (nextRunId) {
+        startPolling();
       }
-    });
+    }, { immediate: true });
 
     onUnmounted(() => {
       stopPolling();
@@ -1093,11 +1149,13 @@ export default {
 </style>
 ```
 
+**Note:** `RunStatus` must watch `activeRunId` so a newly started run replaces the previous run ID, clears old logs, and restarts polling.
+
 **Step 2: Commit**
 
 ```bash
 git add webapp/frontend/components/RunExperimentTab/RunStatus.vue
-git commit -m "feat: add RunStatus component with live polling"
+git commit -m "feat: add RunStatus component with reactive polling"
 ```
 
 ---
@@ -1223,32 +1281,23 @@ git commit -m "feat: add RunExperimentTab container"
 </template>
 
 <script>
-import { ref, watch, onMounted } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
-import { useStore } from '../../composables/useStore.js';
+import { ref, onMounted } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
+import { useApi } from '../../composables/useApi.js';
 
 export default {
   setup() {
-    const { useApi } = require('../../composables/useApi.js');
-    const { getModelConfig } = useApi();
-
-    const { currentTab } = useStore();
-    const selectedModel = computed(() => {
-      // Default to DeepSeek V3 when in config tab
-      return 'deepseek-ai/DeepSeek-V3';
-    });
+    const api = useApi();
 
     const config = ref(null);
     const loading = ref(true);
     const error = ref(null);
 
     const loadConfig = async () => {
-      if (currentTab.value !== 'config') return;
-
       loading.value = true;
       error.value = null;
 
       try {
-        config.value = await getModelConfig(selectedModel.value);
+        config.value = await api.getModelConfig('deepseek-ai/DeepSeek-V3');
       } catch (err) {
         error.value = err.message;
       } finally {
@@ -1257,7 +1306,6 @@ export default {
     };
 
     onMounted(loadConfig);
-    watch(currentTab, loadConfig);
 
     return { config, loading, error };
   }
@@ -1357,7 +1405,7 @@ const TB_2_BYTE = 1099511627776;
 
 export default {
   setup() {
-    const { getHardwareConfig, getConstants } = useApi();
+    const api = useApi();
 
     const config = ref(null);
     const loading = ref(true);
@@ -1368,7 +1416,7 @@ export default {
       error.value = null;
 
       try {
-        config.value = await getHardwareConfig('Ascend_A3Pod');
+        config.value = await api.getHardwareConfig('Ascend_A3Pod');
       } catch (err) {
         error.value = err.message;
       } finally {
@@ -1422,14 +1470,207 @@ git commit -m "feat: add ConfigurationTab components"
 
 ## Components - Results & Visualizations
 
-### Task 12: Create Results Tab Components
+### Task 12: Create Results Tab Components (FIXED: CSV selector with enum names, filter reactivity, stable comparison indices)
 
 **Files:**
+- Create: `webapp/frontend/components/ResultsTab/CsvSelector.vue`
 - Create: `webapp/frontend/components/ResultsTab/ResultsFilter.vue`
 - Create: `webapp/frontend/components/ResultsTab/ResultsTable.vue`
 - Create: `webapp/frontend/components/ResultsTab/index.vue`
 
-**Step 1: Write ResultsFilter component**
+**Step 1: Write CsvSelector component (FIXED: use enum names)**
+
+```html
+<template>
+  <div class="csv-selector">
+    <h4>Select Results CSV</h4>
+    <div class="selector-grid">
+      <div class="field">
+        <label>Serving Mode</label>
+        <select v-model="selection.servingMode">
+          <option value="AFD">AFD</option>
+          <option value="DeepEP">DeepEP</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Device Type</label>
+        <select v-model="selection.deviceType">
+          <option v-for="device in deviceOptions" :key="device.value" :value="device.value">
+            {{ device.label }}
+          </option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Model Type</label>
+        <select v-model="selection.modelType">
+          <option v-for="model in modelOptions" :key="model.value" :value="model.value">
+            {{ model.label }}
+          </option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>TPOT</label>
+        <select v-model="selection.tpot">
+          <option v-for="tp in tpotOptions" :key="tp" :value="tp">
+            {{ tp }}ms
+          </option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>KV Length</label>
+        <select v-model="selection.kvLen">
+          <option v-for="kv in kvLenOptions" :key="kv" :value="kv">
+            {{ kv }}
+          </option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Micro Batch Number</label>
+        <select v-model="selection.microBatchNum">
+          <option v-for="mbn in mbnOptions" :key="mbn" :value="mbn">
+            MBN {{ mbn }}
+          </option>
+        </select>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" @click="handleLoadCsv" :disabled="isLoading">
+      {{ isLoading ? 'Loading...' : 'Load Results' }}
+    </button>
+
+    <div v-if="error" class="error-message">
+      {{ error }}
+    </div>
+  </div>
+</template>
+
+<script>
+import { ref } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
+import { useApi } from '../../composables/useApi.js';
+import { useStore } from '../../composables/useStore.js';
+
+// IMPORTANT: Use exact Enum.name values because backend uses them literally in filenames
+const MODEL_OPTIONS = [
+  { value: 'DEEPSEEK_V3', label: 'DeepSeek V3' },
+  { value: 'QWEN3_235B', label: 'Qwen3-235B-A22B' },
+  { value: 'DEEPSEEK_V2_LITE', label: 'DeepSeek V2 Lite' }
+];
+
+const DEVICE_OPTIONS = [
+  { value: 'ASCEND910B2', label: 'Ascend 910B2' },
+  { value: 'ASCEND910B3', label: 'Ascend 910B3' },
+  { value: 'ASCEND910B4', label: 'Ascend 910B4' },
+  { value: 'ASCENDA3_Pod', label: 'Ascend A3Pod' },
+  { value: 'ASCENDDAVID121', label: 'Ascend David121' },
+  { value: 'ASCENDDAVID120', label: 'Ascend David120' },
+  { value: 'NvidiaA100SXM', label: 'Nvidia A100 SXM' },
+  { value: 'NvidiaH100SXM', label: 'Nvidia H100 SXM' }
+];
+
+const TPOT_OPTIONS = [20, 50, 70, 100, 150];
+const KV_LEN_OPTIONS = [2048, 4096, 8192, 16384, 131072];
+const MBN_OPTIONS = [2, 3];
+
+export default {
+  setup(props, { emit }) {
+    const api = useApi();
+    const store = useStore();
+
+    // Initialize selection from store
+    const selection = ref({ ...store.getCsvSelection() });
+
+    const isLoading = ref(false);
+    const error = ref(null);
+
+    const deviceOptions = DEVICE_OPTIONS;
+    const modelOptions = MODEL_OPTIONS;
+    const tpotOptions = TPOT_OPTIONS;
+    const kvLenOptions = KV_LEN_OPTIONS;
+    const mbnOptions = MBN_OPTIONS;
+
+    const handleLoadCsv = async () => {
+      isLoading.value = true;
+      error.value = null;
+
+      try {
+        const data = await api.fetchCsvResults({
+          serving_mode: selection.value.servingMode,
+          device_type: selection.value.deviceType,
+          model_type: selection.value.modelType,
+          tpot: selection.value.tpot,
+          kv_len: selection.value.kvLen,
+          micro_batch_num: selection.value.microBatchNum
+        });
+
+        // Update store
+        store.setCsvSelection(selection.value);
+
+        // Emit loaded data to parent
+        emit('csv-loaded', data);
+      } catch (err) {
+        // 404 is expected if CSV doesn't exist yet
+        if (err.message.includes('404') || err.message.includes('not found')) {
+          error.value = 'CSV file not found. Run a simulation first, or check that CSV files exist in data/afd/ or data/deepep/.';
+        } else {
+          error.value = err.message;
+        }
+      } finally {
+        isLoading.value = false;
+      }
+    };
+
+    return {
+      selection,
+      isLoading,
+      error,
+      deviceOptions,
+      modelOptions,
+      tpotOptions,
+      kvLenOptions,
+      mbnOptions,
+      handleLoadCsv
+    };
+  },
+  emits: ['csv-loaded']
+}
+</script>
+
+<style scoped>
+.csv-selector {
+  background: #f8fafc;
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+h4 {
+  margin-bottom: 12px;
+  color: #374151;
+}
+
+.selector-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.error-message {
+  background-color: #fee2e2;
+  color: #991b1b;
+  padding: 12px;
+  border-radius: 6px;
+  margin-top: 12px;
+}
+</style>
+```
+
+**Step 2: Write ResultsFilter component**
 
 ```html
 <template>
@@ -1441,117 +1682,58 @@ git commit -m "feat: add ConfigurationTab components"
 
     <div class="filter-grid">
       <div class="field">
-        <label>Model</label>
-        <select v-model="filters.model_type">
-          <option value="">All Models</option>
-          <option value="DEEPSEEK_V3">DeepSeek V3</option>
-          <option value="QWEN3_235B">Qwen3-235B</option>
-          <option value="DEEPSEEK_V2_LITE">DeepSeek V2 Lite</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label>Device</label>
-        <select v-model="filters.device_type">
-          <option value="">All Devices</option>
-          <option value="ASCEND910B2">Ascend 910B2</option>
-          <option value="ASCEND910B3">Ascend 910B3</option>
-          <option value="ASCEND910B4">Ascend 910B4</option>
-          <option value="ASCENDA3_Pod">Ascend A3Pod</option>
-          <option value="ASCENDDAVID121">Ascend David121</option>
-          <option value="ASCENDDAVID120">Ascend David120</option>
-          <option value="NvidiaA100SXM">Nvidia A100 SXM</option>
-          <option value="NvidiaH100SXM">Nvidia H100 SXM</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label>Serving Mode</label>
-        <select v-model="filters.serving_mode">
-          <option value="">All</option>
-          <option value="AFD">AFD</option>
-          <option value="DeepEP">DeepEP</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label>TPOT</label>
-        <select v-model="filters.tpot">
-          <option value="">All</option>
-          <option v-for="tp in [20, 50, 70, 100, 150]" :key="tp" :value="tp">
-            {{ tp }}ms
-          </option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label>KV Length</label>
-        <select v-model="filters.kv_len">
-          <option value="">All</option>
-          <option v-for="kv in [2048, 4096, 8192, 16384, 131072]" :key="kv" :value="kv">
-            {{ kv }}
-          </option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label>Min Die</label>
+        <label>Min Total Die</label>
         <input type="number" v-model.number="filters.min_die" min="0" />
       </div>
 
       <div class="field">
-        <label>Max Die</label>
+        <label>Max Total Die</label>
         <input type="number" v-model.number="filters.max_die" min="0" />
       </div>
-    </div>
 
-    <div class="filter-count">
-      Showing {{ filteredCount }} of {{ totalCount }} results
+      <div class="field">
+        <label>Min Throughput</label>
+        <input type="number" v-model.number="filters.min_throughput" step="0.01" />
+      </div>
+
+      <div class="field">
+        <label>Max Throughput</label>
+        <input type="number" v-model.number="filters.max_throughput" step="0.01" />
+      </div>
     </div>
   </div>
 </template>
 
 <script>
-import { ref, computed } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
+import { ref, watch } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
 
 export default {
   setup(props, { emit }) {
     const filters = ref({
-      model_type: '',
-      device_type: '',
-      serving_mode: '',
-      tpot: '',
-      kv_len: '',
       min_die: null,
-      max_die: null
+      max_die: null,
+      min_throughput: null,
+      max_throughput: null
     });
 
     const resetFilters = () => {
       filters.value = {
-        model_type: '',
-        device_type: '',
-        serving_mode: '',
-        tpot: '',
-        kv_len: '',
         min_die: null,
-        max_die: null
+        max_die: null,
+        min_throughput: null,
+        max_throughput: null
       };
     };
 
+    // Emit filter change whenever filters change
     watch(filters, () => {
       emit('filter-change', filters.value);
     }, { deep: true });
 
     return {
       filters,
-      resetFilters,
-      filteredCount: computed(() => props.filteredData?.length || 0),
-      totalCount: computed(() => props.allData?.length || 0)
+      resetFilters
     };
-  },
-  props: {
-    allData: Array,
-    filteredData: Array
   },
   emits: ['filter-change']
 }
@@ -1577,31 +1759,16 @@ export default {
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 12px;
 }
-
-.filter-count {
-  font-size: 13px;
-  color: #64748b;
-  text-align: right;
-  margin-top: 8px;
-}
 </style>
 ```
 
-**Step 2: Write ResultsTable component**
+**Step 3: Write ResultsTable component (FIXED: reactive filtering, stable comparison indices)**
 
 ```html
 <template>
   <div class="results-table-container">
-    <div v-if="loading" class="loading">
-      <div class="spinner"></div>
-    </div>
-
-    <div v-else-if="error" class="error">
-      {{ error }}
-    </div>
-
-    <div v-else-if="data.length === 0" class="empty-state">
-      No results found. Try adjusting filters or run a new simulation.
+    <div v-if="data.length === 0" class="empty-state">
+      No results to display. Load a CSV file first.
     </div>
 
     <div v-else class="table-wrapper">
@@ -1611,29 +1778,20 @@ export default {
             <th class="select-col">
               <input type="checkbox" :checked="allSelected" @change="toggleAll" />
             </th>
-            <th @click="sortBy('attn_bs')">
-              Attention BS {{ sortCol === 'attn_bs' ? sortDirIcon('attn_bs') : '' }}
-            </th>
-            <th @click="sortBy('total_die')">
-              Total Die {{ sortCol === 'total_die' ? sortDirIcon('total_die') : '' }}
-            </th>
-            <th @click="sortBy('throughput')">
-              Throughput {{ sortCol === 'throughput' ? sortDirIcon('throughput') : '' }}
-            </th>
-            <th @click="sortBy('e2e_time')">
-              E2E Time (ms) {{ sortCol === 'e2e_time' ? sortDirIcon('e2e_time') : '' }}
+            <!-- Dynamic columns from actual CSV data -->
+            <th v-for="col in columns" :key="col" @click="sortBy(col)">
+              {{ formatColumnName(col) }} {{ sortCol === col ? sortDirIcon(col) : '' }}
             </th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in paginatedData" :key="row.run_id || rowIndex">
+          <tr v-for="(row, idx) in paginatedData" :key="row.__stableId || idx">
             <td class="select-col">
-              <input type="checkbox" :checked="selectedRows.has(rowIndex)" @change="toggleSelect(rowIndex)" />
+              <input type="checkbox" :checked="selectedRows.has(row.__stableId)" @change="toggleSelect(row.__stableId)" />
             </td>
-            <td>{{ row.attn_bs }}</td>
-            <td>{{ row.total_die }}</td>
-            <td>{{ row.throughput?.toFixed(2) }}</td>
-            <td>{{ row.e2e_time?.toFixed(2) }}</td>
+            <td v-for="col in columns" :key="col">
+              {{ formatValue(row[col]) }}
+            </td>
           </tr>
         </tbody>
       </table>
@@ -1644,32 +1802,68 @@ export default {
         <button class="btn btn-sm" :disabled="page === totalPages" @click="setPage(page + 1)">Next</button>
       </div>
 
-      <button class="btn btn-primary compare-btn" :disabled="selectedRows.size < 2" @click="emitCompare">
-        Compare Selected ({{ selectedRows.size }})
+      <button class="btn btn-primary compare-btn" :disabled="selectedRows.size < 1" @click="emitCompare">
+        View Charts ({{ selectedRows.size }})
       </button>
     </div>
   </div>
 </template>
 
 <script>
-import { ref, computed } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
+import { ref, computed, watch } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
 
 const PAGE_SIZE = 20;
 
 export default {
   setup(props, { emit }) {
     const page = ref(1);
-    const sortCol = ref('throughput');
+    const sortCol = ref('total_die');
     const sortDir = ref('desc');
     const selectedRows = ref(new Set());
 
+    // Get actual columns from data
+    const columns = computed(() => {
+      if (props.data.length === 0) return [];
+      return Object.keys(props.data[0]);
+    });
+
+    // Add stable IDs to each row for reliable comparison
+    const dataWithStableIds = computed(() => {
+      return props.data.map((row, idx) => ({
+        ...row,
+        __stableId: idx
+      }));
+    });
+
+    const filteredData = computed(() => {
+      let rows = [...dataWithStableIds.value];
+      const f = props.filters || {};
+
+      if (f.min_die !== null && f.min_die !== undefined) {
+        rows = rows.filter(r => Number(r.total_die) >= Number(f.min_die));
+      }
+      if (f.max_die !== null && f.max_die !== undefined) {
+        rows = rows.filter(r => Number(r.total_die) <= Number(f.max_die));
+      }
+      if (f.min_throughput !== null && f.min_throughput !== undefined) {
+        rows = rows.filter(r => Number(r['throughput(tokens/die/s)']) >= Number(f.min_throughput));
+      }
+      if (f.max_throughput !== null && f.max_throughput !== undefined) {
+        rows = rows.filter(r => Number(r['throughput(tokens/die/s)']) <= Number(f.max_throughput));
+      }
+
+      return rows;
+    });
+
     const sortedData = computed(() => {
-      return [...props.data].sort((a, b) => {
+      return [...filteredData.value].sort((a, b) => {
         const aVal = a[sortCol.value];
         const bVal = b[sortCol.value];
         const dir = sortDir.value === 'asc' ? 1 : -1;
-        if (typeof aVal === 'number' && typeof bVal === 'number') {
-          return (aVal - bVal) * dir;
+        const aNum = Number(aVal);
+        const bNum = Number(bVal);
+        if (!Number.isNaN(aNum) && !Number.isNaN(bNum)) {
+          return (aNum - bNum) * dir;
         }
         return String(aVal).localeCompare(String(bVal)) * dir;
       });
@@ -1681,7 +1875,7 @@ export default {
       return sortedData.value.slice(start, end);
     });
 
-    const totalPages = computed(() => Math.ceil(props.data.length / PAGE_SIZE));
+    const totalPages = computed(() => Math.max(1, Math.ceil(filteredData.value.length / PAGE_SIZE)));
 
     const sortBy = (col) => {
       if (sortCol.value === col) {
@@ -1697,11 +1891,11 @@ export default {
       return sortDir.value === 'asc' ? '↑' : '↓';
     };
 
-    const toggleSelect = (idx) => {
-      if (selectedRows.value.has(idx)) {
-        selectedRows.value.delete(idx);
+    const toggleSelect = (stableId) => {
+      if (selectedRows.value.has(stableId)) {
+        selectedRows.value.delete(stableId);
       } else {
-        selectedRows.value.add(idx);
+        selectedRows.value.add(stableId);
       }
     };
 
@@ -1709,13 +1903,13 @@ export default {
       if (allSelected.value) {
         selectedRows.value.clear();
       } else {
-        sortedData.value.forEach((_, idx) => selectedRows.value.add(idx));
+        paginatedData.value.forEach(row => selectedRows.value.add(row.__stableId));
       }
     };
 
     const allSelected = computed(() => {
       return paginatedData.value.length > 0 &&
-             paginatedData.value.every((_, idx) => selectedRows.value.has(idx + (page.value - 1) * PAGE_SIZE));
+             paginatedData.value.every(row => selectedRows.value.has(row.__stableId));
     });
 
     const setPage = (p) => {
@@ -1723,8 +1917,33 @@ export default {
       selectedRows.value.clear();
     };
 
+    watch(() => props.filters, () => {
+      page.value = 1;
+      selectedRows.value.clear();
+    }, { deep: true });
+
+    watch(() => props.data, () => {
+      page.value = 1;
+      selectedRows.value.clear();
+    });
+
+    const formatValue = (val) => {
+      if (typeof val !== 'number') return val;
+      return val.toFixed(2);
+    };
+
+    const formatColumnName = (col) => {
+      // Convert snake_case to more readable format
+      return col
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, word => word.charAt(0).toUpperCase() + word.slice(1))
+        .replace('tokens die s', '(tokens/die/s)');
+    };
+
     const emitCompare = () => {
-      const selectedData = Array.from(selectedRows.value).map(idx => paginatedData.value[idx]);
+      const selectedData = dataWithStableIds.value
+        .filter(row => selectedRows.value.has(row.__stableId))
+        .map(({ __stableId, ...row }) => row);
       emit('compare', selectedData);
     };
 
@@ -1740,11 +1959,21 @@ export default {
       toggleAll,
       allSelected,
       setPage,
-      emitCompare
+      emitCompare,
+      columns,
+      formatValue,
+      formatColumnName
     };
   },
   props: {
-    data: Array
+    data: {
+      type: Array,
+      default: () => []
+    },
+    filters: {
+      type: Object,
+      default: () => ({})
+    }
   },
   emits: ['compare']
 }
@@ -1789,103 +2018,119 @@ export default {
 </style>
 ```
 
-**Step 3: Write container component**
+**Step 4: Write container component (FIXED: proper imports, comparison)**
 
 ```html
 <template>
   <div class="results-tab">
-    <ResultsFilter
-      :all-data="allResults"
-      :filtered-data="filteredResults"
-      @filter-change="onFilterChange"
-    />
+    <CsvSelector @csv-loaded="onCsvLoaded" />
+    <ResultsFilter v-if="csvData.length > 0" @filter-change="onFilterChange" />
+
+    <div class="results-meta">
+      <span v-if="csvData.length > 0">
+        Showing {{ filteredCount }} of {{ csvData.length }} results
+      </span>
+      <span v-else>Select a CSV file to load results.</span>
+    </div>
+
     <ResultsTable
-      :data="filteredResults"
+      v-if="csvData.length > 0"
+      :data="csvData"
+      :filters="currentFilters"
       @compare="onCompare"
     />
   </div>
 </template>
 
 <script>
-import { ref } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
-import { useApi } from '../../composables/useApi.js';
+import { ref, computed } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
+import { useStore } from '../../composables/useStore.js';
+import CsvSelector from './CsvSelector.vue';
 import ResultsFilter from './ResultsFilter.vue';
 import ResultsTable from './ResultsTable.vue';
 
 export default {
-  components: { ResultsFilter, ResultsTable },
+  components: { CsvSelector, ResultsFilter, ResultsTable },
   setup() {
-    const { fetchCsvResults } = useApi();
+    const { setTab, setCsvSelection } = useStore();
 
-    const allResults = ref([]);
-    const filteredResults = ref([]);
-    const loading = ref(true);
-    const error = ref(null);
+    const csvData = ref([]);
+    const currentFilters = ref({});
+    const filteredCount = computed(() => {
+      let rows = [...csvData.value];
+      const f = currentFilters.value || {};
 
-    const onFilterChange = (newFiltered) => {
-      filteredResults.value = newFiltered;
+      if (f.min_die !== null && f.min_die !== undefined) {
+        rows = rows.filter(r => Number(r.total_die) >= Number(f.min_die));
+      }
+      if (f.max_die !== null && f.max_die !== undefined) {
+        rows = rows.filter(r => Number(r.total_die) <= Number(f.max_die));
+      }
+      if (f.min_throughput !== null && f.min_throughput !== undefined) {
+        rows = rows.filter(r => Number(r['throughput(tokens/die/s)']) >= Number(f.min_throughput));
+      }
+      if (f.max_throughput !== null && f.max_throughput !== undefined) {
+        rows = rows.filter(r => Number(r['throughput(tokens/die/s)']) <= Number(f.max_throughput));
+      }
+
+      return rows.length;
+    });
+
+    const onCsvLoaded = (data) => {
+      csvData.value = data || [];
+      currentFilters.value = {};
     };
 
-    const loadResults = async () => {
-      try {
-        // Load default results
-        const data = await fetchCsvResults({
-          device_type: 'ASCENDA3_Pod',
-          model_type: 'DEEPSEEK_V3',
-          tpot: 50,
-          kv_len: 4096,
-          serving_mode: 'AFD',
-          micro_batch_num: 3
-        });
-        allResults.value = data;
-        filteredResults.value = data;
-      } catch (err) {
-        error.value = err.message;
-      } finally {
-        loading.value = false;
-      }
+    const onFilterChange = (filters) => {
+      currentFilters.value = filters;
     };
 
     const onCompare = (selected) => {
-      // Store comparison data for visualizations tab
-      sessionStorage.setItem('comparison-data', JSON.stringify(selected));
-      // Navigate to visualizations tab
-      window.location.hash = '#visualizations';
+      const firstSelected = selected[0];
+      if (!firstSelected || firstSelected.total_die == null) return;
+
+      // Current Visualizations tab only needs one total_die seed; use the first selected row.
+      setCsvSelection({ totalDie: Number(firstSelected.total_die) });
+      setTab('visualizations');
     };
 
-    // Load on mount
-    loadResults();
-
     return {
-      allResults,
-      filteredResults,
-      loading,
-      error,
+      csvData,
+      currentFilters,
+      filteredCount,
+      onCsvLoaded,
       onFilterChange,
       onCompare
     };
   }
 }
 </script>
-</script>
+
+<style scoped>
+.results-meta {
+  margin-bottom: 12px;
+  color: #64748b;
+  font-size: 14px;
+}
+</style>
 ```
 
-**Step 4: Commit**
+**Step 5: Commit**
 
 ```bash
 git add webapp/frontend/components/ResultsTab/
-git commit -m "feat: add ResultsTab with filter and sort"
+git commit -m "feat: add ResultsTab with CSV selector, reactive filtering, stable comparison"
 ```
 
 ---
 
-### Task 13: Create Visualizations Tab Components
+### Task 13: Create Visualizations Tab Components (FIXED: add all required parameters)
 
 **Files:**
 - Create: `webapp/frontend/components/VisualizationsTab/ThroughputCharts.vue`
 - Create: `webapp/frontend/components/VisualizationsTab/index.vue`
 
-**Step 1: Write ThroughputCharts component**
+**Step 1: Write ThroughputCharts component (FIXED: include tpot and kvLen)**
 
 ```html
 <template>
@@ -1893,7 +2138,7 @@ git commit -m "feat: add ResultsTab with filter and sort"
     <div class="chart-controls">
       <div class="field">
         <label>Device Type</label>
-        <select v-model="params.device_type">
+        <select v-model="params.deviceType">
           <option v-for="d in deviceOptions" :key="d.value" :value="d.value">
             {{ d.label }}
           </option>
@@ -1901,7 +2146,7 @@ git commit -m "feat: add ResultsTab with filter and sort"
       </div>
       <div class="field">
         <label>Model Type</label>
-        <select v-model="params.model_type">
+        <select v-model="params.modelType">
           <option v-for="m in modelOptions" :key="m.value" :value="m.value">
             {{ m.label }}
           </option>
@@ -1909,8 +2154,24 @@ git commit -m "feat: add ResultsTab with filter and sort"
       </div>
       <div class="field">
         <label>Total Die</label>
-        <select v-model="params.total_die">
+        <select v-model="params.totalDie">
           <option v-for="d in dieOptions" :key="d" :value="d">{{ d }}</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>TPOT</label>
+        <select v-model="params.tpot">
+          <option v-for="tp in tpotOptions" :key="tp" :value="tp">
+            {{ tp }}ms
+          </option>
+        </select>
+      </div>
+      <div class="field">
+        <label>KV Length</label>
+        <select v-model="params.kvLen">
+          <option v-for="kv in kvLenOptions" :key="kv" :value="kv">
+            {{ kv }}
+          </option>
         </select>
       </div>
       <button class="btn btn-sm" @click="loadCharts">Load Charts</button>
@@ -1919,26 +2180,44 @@ git commit -m "feat: add ResultsTab with filter and sort"
     <div v-if="error" class="error">{{ error }}</div>
 
     <div class="chart-container">
-      <canvas ref="chartCanvas" v-show="!loading"></canvas>
       <div v-if="loading" class="loading">
         <div class="spinner"></div>
+      </div>
+      <div v-else-if="chartUrls.length > 0">
+        <h3>Throughput Comparison</h3>
+        <img
+          v-for="(url, idx) in chartUrls"
+          :key="idx"
+          :src="url"
+          alt="Throughput chart"
+          class="chart-image"
+          @error="onImageError($event, url)"
+        />
+      </div>
+      <div v-else class="empty-charts">
+        No charts available for the selected parameters.
+        <p>Charts are generated when running simulations. The device_type, model_type, total_die, tpot, and kv_len parameters above select which pre-generated chart to display.</p>
       </div>
     </div>
   </div>
 </template>
 
 <script>
-import { ref, onMounted, nextTick } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
+import { ref, onMounted } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
+import { useStore } from '../../composables/useStore.js';
 import { useApi } from '../../composables/useApi.js';
 
 export default {
   setup() {
-    const { getResults } = useApi();
+    const api = useApi();
+    const { getCsvSelection } = useStore();
 
     const params = ref({
-      device_type: 'ASCENDA3_Pod',
-      model_type: 'DEEPSEEK_V3',
-      total_die: 128
+      deviceType: 'ASCENDA3_Pod',
+      modelType: 'DEEPSEEK_V3',
+      totalDie: 128,
+      tpot: 50,
+      kvLen: 4096
     });
 
     const deviceOptions = [
@@ -1960,65 +2239,67 @@ export default {
 
     const dieOptions = [64, 128, 256, 384, 512, 768];
 
-    const chartCanvas = ref(null);
+    const tpotOptions = [20, 50, 70, 100, 150];
+    const kvLenOptions = [2048, 4096, 8192, 16384, 131072];
+
+    const chartUrls = ref([]);
     const loading = ref(false);
     const error = ref(null);
-    let chartInstance = null;
 
     const loadCharts = async () => {
       loading.value = true;
       error.value = null;
 
       try {
-        const data = await getResults(params.value);
-
-        await nextTick();
-
-        if (chartCanvas.value && data.throughput_images) {
-          // Create Chart.js instance
-          if (chartInstance) {
-            chartInstance.destroy();
-          }
-
-          // Load images directly (simpler approach)
-          const container = chartCanvas.value.parentElement;
-          container.innerHTML = '<h3>Throughput Comparison</h3>';
-
-          data.throughput_images.forEach(url => {
-            const img = document.createElement('img');
-            img.src = url;
-            img.alt = 'Throughput chart';
-            img.style.maxWidth = '100%';
-            img.style.marginTop = '16px';
-            img.onerror = () => {
-              const msg = document.createElement('div');
-              msg.className = 'missing-chart';
-              msg.textContent = `Chart not found: ${url}`;
-              container.appendChild(msg);
-            };
-            container.appendChild(img);
-          });
-        }
-
+        // IMPORTANT: Send ALL required parameters including tpot and kvLen
+        const data = await api.getResults({
+          device_type: params.value.deviceType,
+          model_type: params.value.modelType,
+          total_die: params.value.totalDie,
+          tpot: params.value.tpot,
+          kv_len: params.value.kvLen
+        });
+        chartUrls.value = data.throughput_images || [];
       } catch (err) {
-        error.value = err.message;
+        // 404 is expected if charts don't exist yet
+        if (err.message.includes('404')) {
+          chartUrls.value = [];
+        } else {
+          error.value = err.message;
+        }
       } finally {
         loading.value = false;
       }
     };
 
-    // Auto-load on mount
-    onMounted(loadCharts);
+    const onImageError = (event, url) => {
+      console.warn('Failed to load chart:', url);
+      event.target.style.display = 'none';
+    };
+
+    // Auto-load on mount using CSV selection
+    onMounted(() => {
+      const selection = getCsvSelection();
+      if (selection.deviceType) params.value.deviceType = selection.deviceType;
+      if (selection.modelType) params.value.modelType = selection.modelType;
+      if (selection.totalDie) params.value.totalDie = selection.totalDie;
+      params.value.tpot = selection.tpot;
+      params.value.kvLen = selection.kvLen;
+      loadCharts();
+    });
 
     return {
       params,
       deviceOptions,
       modelOptions,
       dieOptions,
-      chartCanvas,
+      tpotOptions,
+      kvLenOptions,
+      chartUrls,
       loading,
       error,
-      loadCharts
+      loadCharts,
+      onImageError
     };
   }
 }
@@ -2052,11 +2333,17 @@ export default {
   justify-content: center;
 }
 
-.missing-chart {
-  color: #dc2626;
-  padding: 16px;
-  background: #fee2e2;
-  border-radius: 6px;
+.chart-image {
+  max-width: 100%;
+  margin-top: 16px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.empty-charts {
+  color: #64748b;
+  padding: 40px;
+  text-align: center;
 }
 </style>
 ```
@@ -2077,87 +2364,65 @@ export default {
   components: { ThroughputCharts }
 }
 </script>
-</script>
 ```
 
 **Step 3: Commit**
 
 ```bash
 git add webapp/frontend/components/VisualizationsTab/
-git commit -m "feat: add VisualizationsTab with throughput charts"
+git commit -m "feat: add VisualizationsTab with all required parameters"
 ```
 
 ---
 
 ## Application Integration
 
-### Task 14: Create Main App Entry
+### Task 14: Create Main App Entry (FIXED: proper SFC loader pattern)
 
 **Files:**
 - Create: `webapp/frontend/app.js`
 
-**Step 1: Write Vue app entry point with SFC compiler**
+**Step 1: Write Vue app entry point with proper SFC loader configuration**
 
 ```javascript
-import { createApp } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
-import { compileTemplate } from 'https://unpkg.com/@vue/compiler-sfc@3/dist/compiler-sfc.esm-browser.prod.js';
-import TabManager from './components/TabManager.vue';
-import RunExperimentTab from './components/RunExperimentTab/index.vue';
-import ConfigurationTab from './components/ConfigurationTab/index.vue';
-import ResultsTab from './components/ResultsTab/index.vue';
-import VisualizationsTab from './components/VisualizationsTab/index.vue';
+import * as Vue from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
+import { loadModule } from 'https://unpkg.com/vue3-sfc-loader/dist/vue3-sfc-loader.esm.js';
 
-// Component cache for compiled SFCs
-const componentCache = new Map();
-
-async function loadComponent(name, path) {
-  if (componentCache.has(name)) {
-    return componentCache.get(name);
+const options = {
+  moduleCache: {
+    vue: Vue
+  },
+  async getFile(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Could not load ${url}`);
+    return await res.text();
+  },
+  addStyle(textContent) {
+    const style = document.createElement('style');
+    style.textContent = textContent;
+    document.head.appendChild(style);
   }
-
-  const response = await fetch(path);
-  const source = await response.text();
-  const { descriptor } = compileTemplate({ source });
-
-  const component = descriptor.setup;
-  componentCache.set(name, component);
-  return component;
-}
-
-const components = {
-  TabManager: () => loadComponent('TabManager', './components/TabManager.vue'),
-  RunExperimentTab: () => loadComponent('RunExperimentTab', './components/RunExperimentTab/index.vue'),
-  ConfigurationTab: () => loadComponent('ConfigurationTab', './components/ConfigurationTab/index.vue'),
-  ResultsTab: () => loadComponent('ResultsTab', './components/ResultsTab/index.vue'),
-  VisualizationsTab: () => loadComponent('VisualizationsTab', './components/VisualizationsTab/index.vue')
 };
 
-const app = createApp({
-  components,
-  template: `
-    <div>
-      <TabManager>
-        <template #default="{ currentTab }">
-          <RunExperimentTab v-if="currentTab === 'run'" />
-          <ConfigurationTab v-if="currentTab === 'config'" />
-          <ResultsTab v-if="currentTab === 'results'" />
-          <VisualizationsTab v-if="currentTab === 'visualizations'" />
-        </template>
-      </TabManager>
-    </div>
-  `
+const app = Vue.createApp({
+  components: {
+    TabManager: Vue.defineAsyncComponent(() =>
+      loadModule('/static/components/TabManager.vue', options)
+    )
+  },
+  template: '<TabManager />'
 });
 
 app.mount('#app');
 ```
 
-**Note:** Uses `@vue/compiler-sfc` to compile .vue components on-demand in the browser. Components are cached after first load.
+**Note:** Uses the `defineAsyncComponent(() => loadModule(..., options))` pattern from the vue3-sfc-loader README. `moduleCache.vue` must receive the imported Vue module object, not a URL string. Because FastAPI mounts `webapp/frontend/` at `/static`, the top-level SFC path should be an absolute `/static/...` URL.
 
 **Step 2: Commit**
 
 ```bash
 git add webapp/frontend/app.js
-git commit -m "feat: create Vue app entry point"
+git commit -m "feat: create Vue app entry point with working SFC loader setup"
 ```
 
 ---
@@ -2169,8 +2434,10 @@ git commit -m "feat: create Vue app entry point"
 **Step 1: Start backend**
 
 ```bash
-cd /Users/elle/claude-code/light-llm-simulator
-uvicorn webapp.backend.main:app --host 127.0.0.1 --port 8000 &
+cd ../llm-ui-refactor
+
+# IMPORTANT: Set LOG_LEVEL to INFO for progress indicators to work
+LOG_LEVEL=INFO uvicorn webapp.backend.main:app --host 127.0.0.1 --port 8000 &
 ```
 
 Expected: Server starts on port 8000
@@ -2182,7 +2449,8 @@ Checklist:
 - [ ] Tab navigation works
 - [ ] Run form submits successfully
 - [ ] Configuration tab displays model/hardware specs
-- [ ] Results tab loads sample data
+- [ ] Results tab CSV selector works
+- [ ] Results tab filters work within selected CSV
 - [ ] Visualizations tab loads charts
 
 **Step 3: Run a test simulation**
@@ -2195,13 +2463,15 @@ Checklist:
 - [ ] Logs stream to UI
 - [ ] "Done" status appears
 
-**Step 4: Navigate to Results and fetch**
+**Step 4: Navigate to Results and load CSV**
 
 Checklist:
-- [ ] Filter controls work
+- [ ] CSV selector works (loads CSV file by enum name matching backend)
+- [ ] Filter controls work within CSV data
 - [ ] Table sorting works
 - [ ] Row selection works
-- [ ] Comparison button enables with 2+ selections
+- [ ] View Charts button enables with 1+ selection
+- [ ] Selected row opens Visualizations tab and seeds `total_die`
 
 **Step 5: Stop backend**
 
@@ -2282,18 +2552,38 @@ gh pr create --title "Refactor Web UI to Vue.js" --body "Implements tab-based na
 
 - All commits follow conventional commits: `feat:`, `chore:`, `test:`, `fix:`
 - Vue 3 loaded via CDN - no npm/package.json build step required
-- **Browser-based SFC compiler:** Uses `@vue/compiler-sfc` to compile .vue components on-demand, no build step
+- **Browser-based SFC loader:** Uses `vue3-sfc-loader` with `defineAsyncComponent(() => loadModule(..., options))`. `moduleCache.vue` must be the imported Vue module object.
+- **Static asset URLs:** FastAPI serves `index.html` at `/` and mounts `webapp/frontend/` at `/static`, so CSS, `app.js`, and the top-level `.vue` loader entrypoint should use absolute `/static/...` URLs.
+- **Nested SFC imports:** If a child `.vue` or `../composables/...` import 404s during integration, update `getFile()` to resolve relative URLs against the parent module URL rather than assuming root-relative fetches.
 - Backend API endpoints remain unchanged
 - Progress polling uses existing `/logs/{run_id}` endpoint (returns raw log text as `{"log": "..."}`)
-- Results use existing `/fetch_csv_results` endpoint (returns JSON array of CSV rows)
-- Charts load images from `/data/images/` static path (no new API endpoint)
+- Results use existing `/fetch_csv_results` endpoint (returns JSON array of CSV rows from one CSV file at a time)
+- Charts load static images from `/data/images/` path (no new API endpoint)
 - Each component is self-contained with scoped styles
-- Use `useStore()` for cross-component state sharing
+- Use `useStore()` for cross-component state sharing (singleton pattern ensures shared refs including CSV selection)
 - Use `useApi()` for all API calls (centralized error handling)
 
+**IMPORTANT: LOG_LEVEL Requirement for Progress Tracking**
+
+For RunStatus component's phase detection to work correctly:
+- Start backend with `LOG_LEVEL=INFO` set as an environment variable
+- The default `LOG_LEVEL=WARNING` will suppress phase marker messages that UI relies on
+- Example: `LOG_LEVEL=INFO uvicorn webapp.backend.main:app --host 127.0.0.1 --port 8000`
+
 **Backend API Gaps - Frontend-Only Behavior:**
+
 The current backend API doesn't directly support some UX features. These will be implemented with frontend-only behavior:
-- **Progress bars and phase indicators:** Frontend parses log text from `/logs/{run_id}` endpoint using regex patterns to infer progress/phase
-- **ETA (estimated time remaining):** Frontend estimates based on search parameters (die range, batch counts) - not provided by backend
-- **Interactive pipeline zoom/pan:** Not supported by current static image approach - would require new dynamic chart API or Chart.js configuration with raw CSV data instead of images
-- **Real-time status updates:** Uses existing `/status/{run_id}` polling every 3 seconds
+- **Progress bars and phase indicators:** Frontend parses log text from `/logs/{run_id}` endpoint using regex patterns to infer progress/phase. Requires LOG_LEVEL=INFO to work.
+- **ETA (optional heuristic):** Not required for the initial refactor. If added later, frontend can estimate from search parameters (die range, batch counts), but backend does not provide a true ETA.
+- **Results tab CSV selection:** Backend does not provide a way to list available CSV files. Frontend allows user to select which CSV file to view via parameters (`serving_mode`, `device_type`, `model_type`, `tpot`, `kv_len`, `micro_batch_num`).
+- **Pipeline visualizations:** Static images only - no interactive zoom/pan supported (would require new dynamic chart API or client-side processing).
+- **Export functionality:** Not supported by static image approach (would require new backend endpoint or client-side image generation).
+
+**Results Tab Design Note:**
+
+The Results tab filters and sorts WITHIN A SINGLE selected CSV file. It does NOT filter across different runs/models/devices because:
+1. The backend `/fetch_csv_results` endpoint returns rows from ONE specific CSV file based on parameters
+2. CSV files are named by pattern: `{DeviceType.name}-{ModelType.name}-tpot{tpot}-kv_len{kvLen}.csv`
+3. CSV files contain performance data (total_die, throughput, etc.) but NOT metadata columns like model_type, device_type
+
+To view results from different simulation configurations, users select different CSV files using the CSV selector. The CSV selector must use exact enum names (for example `ASCENDA3_Pod`, `DEEPSEEK_V3`, `QWEN3_235B`) because the backend uses those strings directly in CSV and image filenames.
