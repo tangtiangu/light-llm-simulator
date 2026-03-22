@@ -143,6 +143,15 @@ Open: <http://127.0.0.1:8000>
 - matplotlib
 - numpy
 
+## Testing
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+MPLBACKEND=agg python -m pytest -m "unit or build"
+```
+
+See [`tests/README.md`](tests/README.md) for markers and commands.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
