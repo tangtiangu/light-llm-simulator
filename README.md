@@ -16,7 +16,7 @@ Let's get started.
 ### From source
 
 ```bash
-git clone https://github.com/your-org/light-llm-simulator.git
+git clone https://github.com/JiusiServe/light-llm-simulator.git
 cd light-llm-simulator
 
 python3 -m venv .venv
