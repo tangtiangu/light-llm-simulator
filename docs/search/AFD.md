@@ -25,7 +25,7 @@ AFD supports two deployment modes:
 - Total die = attn_die + ffn_die
 - Allows mixing different accelerator types for optimal cost-performance
 
-See [Heterogeneous AFD Design](../plans/heterogeneous-afd-design.md) for detailed documentation.
+See [Heterogeneous AFD Design](../plans/heterogeneous-design.md) for detailed documentation.
 
 ## Output Columns
 

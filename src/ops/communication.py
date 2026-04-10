@@ -12,6 +12,15 @@ class Dispatch(BaseOp):
         self.config = config
         super().__init__("Dispatch", config.aichip_config, elem_size)
         self.model_config = config.model_config
+        if config.deployment_mode == "Heterogeneous":
+            self.inter_node_bandwidth = min(
+                config.aichip_config.inter_node_bandwidth,
+                config.aichip_config2.inter_node_bandwidth
+            ) * self.op_memory_disc()
+            self.intra_node_bandwidth = min(
+                config.aichip_config.intra_node_bandwidth,
+                config.aichip_config2.intra_node_bandwidth
+            ) * self.op_memory_disc()
 
     def op_memory_disc(self):
         return 0.7
@@ -50,6 +59,15 @@ class Combine(BaseOp):
         self.config = config
         super().__init__("Dispatch", config.aichip_config, elem_size)
         self.model_config = config.model_config
+        if config.deployment_mode == "Heterogeneous":
+            self.inter_node_bandwidth = min(
+                config.aichip_config.inter_node_bandwidth,
+                config.aichip_config2.inter_node_bandwidth
+            ) * self.op_memory_disc()
+            self.intra_node_bandwidth = min(
+                config.aichip_config.intra_node_bandwidth,
+                config.aichip_config2.intra_node_bandwidth
+            ) * self.op_memory_disc()
 
     def op_memory_disc(self):
         return 0.7
