@@ -15,8 +15,10 @@ class BaseOp(ABC):
         elem_size: Size of a single element in bytes, 1 for INT8, 2 for FP16.
         cube_flops_int8: actual INT8 matrix-multiply computing power, TFLOPS.
         cube_flops_fp16: actual FP16 matrix-multiply computing power, TFLOPS.
+        cube_flops_fp32: actual FP32 matrix-multiply computing power, TFLOPS.
         vec_flops_int8: actual INT8 vector computing power, TFLOPS.
         vec_flops_fp16: actual FP16 vector computing power, TFLOPS.
+        vec_flops_fp32: actual FP32 vector computing power, TFLOPS.
         cube_flops: actual matrix-multiply computing power, TFLOPS.
         vector_flops: actual vector computing power, TFLOPS.
         inter_node_bandwidth: Die-to-die bandwidth between nodes, GB/s.
@@ -42,10 +44,19 @@ class BaseOp(ABC):
         self.static_cost = static_cost
         self.cube_flops_int8 = self.aichip_config.cube_flops_int8 * self.op_compute_disc()
         self.cube_flops_fp16 = self.aichip_config.cube_flops_fp16 * self.op_compute_disc()
+        self.cube_flops_fp32 = self.cube_flops_fp16 / 2
         self.vec_flops_int8 = self.aichip_config.vector_flops_int8 * self.op_compute_disc()
         self.vec_flops_fp16 = self.aichip_config.vector_flops_fp16 * self.op_compute_disc()
-        self.cube_flops = self.cube_flops_fp16 if elem_size == 2 else self.cube_flops_int8
-        self.vector_flops = self.vec_flops_fp16 if elem_size == 2 else self.vec_flops_int8
+        self.vec_flops_fp32 = self.vec_flops_fp16 / 2
+        if self.elem_size == 1:
+            self.cube_flops = self.cube_flops_int8
+            self.vector_flops = self.vec_flops_int8
+        elif self.elem_size == 2:
+            self.cube_flops = self.cube_flops_fp16
+            self.vector_flops = self.vec_flops_fp16
+        else:
+            self.cube_flops = self.cube_flops_fp32
+            self.vector_flops = self.vec_flops_fp32
         self.inter_node_bandwidth = self.aichip_config.inter_node_bandwidth * self.op_memory_disc()
         self.intra_node_bandwidth = self.aichip_config.intra_node_bandwidth * self.op_memory_disc()
         self.local_memory_bandwidth = self.aichip_config.local_memory_bandwidth * self.op_memory_disc()
