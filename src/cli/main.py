@@ -82,9 +82,6 @@ def run_search(args):
     Parameters:
         args: The arguments from the parser.
     """
-    if args.tpot is None and args.attn_bs is None:
-        raise ValueError("Either --tpot or --attn_bs must be specified")
-    
     if args.attn_bs is not None:
         for bs in args.attn_bs:
             if not isinstance(bs, int) or bs <= 0:
