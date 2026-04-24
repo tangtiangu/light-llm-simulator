@@ -153,7 +153,10 @@ class AfdSearch(BaseSearch):
 
     def _evaluate_config_direct(self, attn_bs, attn_die, ffn_die, routed_expert_per_die):
         """Evaluate a (attn_bs, attn_die, ffn_die) configuration without TPOT constraint.
-        Returns results dict if memory constraints are satisfied, None otherwise.
+        
+        Returns:
+            dict: Results dictionary with timing and memory metrics if memory constraints are satisfied.
+            None: Only if memory constraints are not satisfied (attn_used_memory or ffn_static_memory exceeds threshold).
         """
         if get_attention_family(self.config.model_type) == "MLA":
             kv_size, attn_static_memory, mlp_static_memory, per_router_expert_memory = self.compute_MLA_memory_size(
@@ -399,6 +402,17 @@ class AfdSearch(BaseSearch):
             Iterates over specified attn_bs values for each (ffn_die, attn_die) pair.
             Saves separate CSV files for each attn_bs value.
         '''
+        if self.config.attn_bs is None:
+            raise ValueError("attn_bs cannot be None for direct calculation mode")
+        if not hasattr(self.config.attn_bs, '__iter__'):
+            raise ValueError(f"attn_bs must be iterable, got {type(self.config.attn_bs).__name__}")
+        try:
+            attn_bs_list = list(self.config.attn_bs)
+        except TypeError:
+            raise ValueError(f"attn_bs must be iterable, got {type(self.config.attn_bs).__name__}")
+        if len(attn_bs_list) == 0:
+            raise ValueError("attn_bs cannot be empty for direct calculation mode")
+
         if self.config.deployment_mode == "Heterogeneous":
             min_ffn_die = self.config.min_die2
             max_ffn_die = self.config.max_die2 + 1
