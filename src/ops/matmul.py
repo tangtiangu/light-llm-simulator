@@ -23,7 +23,7 @@ class OpMatmul(BaseOp):
 
     def compute_cost(self):
         self.total_computation = 2 * self.m * self.n * self.k
-        self.compute_time = self.total_computation / self.cube_flops_fp16 / 0.8
+        self.compute_time = self.total_computation / self.cube_flops
         return self.compute_time
 
     def memory_cost(self):
