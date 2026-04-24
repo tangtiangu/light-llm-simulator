@@ -23,13 +23,14 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         min_die: The min number of die to explore.
         max_die: The max number of die to explore.
         die_step: The step size of the die to explore.
-        tpot: The target TPOT.
+        tpot: The target TPOT (constraint mode, mutually exclusive with attn_bs).
         kv_len: The input sequence length.
         micro_batch_num: The micro batch number.
         next_n: Predict the next n tokens through the MTP(Multi-Token Prediction) technique.
         multi_token_ratio: The acceptance rate of the additionally predicted token.
         attn_tensor_parallel: Number of dies used for tensor model parallelism.
         ffn_tensor_parallel: Number of dies used for tensor model parallelism.
+        attn_bs: Attention batch size list for direct calculation mode (mutually exclusive with tpot).
         deployment_mode: "Homogeneous" or "Heterogeneous" (AFD and DeepEP).
         device_type2: The second device type for FFN (Heterogeneous mode only).
         min_die2: The min number of FFN dies to explore (Heterogeneous mode only).
@@ -44,13 +45,16 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument('--min_die', type=int, default=16)
     parser.add_argument('--max_die', type=int, default=768)
     parser.add_argument('--die_step', type=int, default=16)
-    parser.add_argument('--tpot', nargs='+', type=int, default=[20, 50, 70, 100, 150])
+    parser.add_argument('--tpot', nargs='+', type=int, default=None,
+                        help='TPOT targets for constraint mode. If not specified, uses direct calculation mode with attn_bs.')
     parser.add_argument('--kv_len', nargs='+', type=int, default=[2048, 4096, 8192, 16384, 131072])
     parser.add_argument('--micro_batch_num', nargs='+', type=int, default=[2, 3])
     parser.add_argument('--next_n', type=int, default=1)
     parser.add_argument('--multi_token_ratio', type=float, default=0.7)
     parser.add_argument('--attn_tensor_parallel', type=int, default=1)
     parser.add_argument('--ffn_tensor_parallel', type=int, default=1)
+    parser.add_argument('--attn_bs', nargs='+', type=int, default=None,
+                        help='Attention batch size list for direct calculation mode. Required when tpot is not specified.')
     # Heterogeneous mode arguments
     parser.add_argument('--deployment_mode', type=str, default="Homogeneous",
                         choices=["Homogeneous", "Heterogeneous"],
@@ -70,9 +74,26 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 def run_search(args):
     """
     Run the search to find the best configuration and the best throughput.
+    Supports two modes:
+    - Constraint mode (tpot specified): Binary search for max batchsize satisfying TPOT constraint
+    - Direct calculation mode (attn_bs specified, no tpot): Calculate performance directly for each batchsize
+    
     Parameters:
         args: The arguments from the parser.
     """
+    if args.tpot is None and args.attn_bs is None:
+        raise ValueError("Either --tpot or --attn_bs must be specified")
+    
+    is_constraint_mode = args.tpot is not None
+    
+    if is_constraint_mode:
+        _run_constraint_mode(args)
+    else:
+        _run_direct_mode(args)
+
+
+def _run_constraint_mode(args):
+    """Constraint mode: binary search for max batchsize satisfying TPOT constraint."""
     if args.serving_mode == "AFD":
         for mbn in args.micro_batch_num:
             for tpot in args.tpot:
@@ -131,6 +152,67 @@ def run_search(args):
     else:
         raise ValueError(f"Invalid serving mode: {args.serving_mode}")
 
+
+def _run_direct_mode(args):
+    """Direct calculation mode: compute performance directly for each attn_bs value."""
+    if args.serving_mode == "AFD":
+        for mbn in args.micro_batch_num:
+            for attn_bs in args.attn_bs:
+                for kv_len in args.kv_len:
+                    config = Config(
+                        serving_mode=args.serving_mode,
+                        model_type=args.model_type,
+                        device_type=args.device_type,
+                        min_attn_bs=attn_bs,
+                        max_attn_bs=attn_bs,
+                        min_die=args.min_die,
+                        max_die=args.max_die,
+                        die_step=args.die_step,
+                        tpot=-1,
+                        kv_len=kv_len,
+                        micro_batch_num=mbn,
+                        next_n=args.next_n,
+                        multi_token_ratio=args.multi_token_ratio,
+                        attn_tensor_parallel=args.attn_tensor_parallel,
+                        ffn_tensor_parallel=args.ffn_tensor_parallel,
+                        deployment_mode=args.deployment_mode,
+                        device_type2=args.device_type2,
+                        min_die2=args.min_die2,
+                        max_die2=args.max_die2,
+                        die_step2=args.die_step2
+                    )
+                    afd_search = AfdSearch(config)
+                    afd_search.deployment()
+    elif args.serving_mode == "DeepEP":
+        for attn_bs in args.attn_bs:
+            for kv_len in args.kv_len:
+                config = Config(
+                    serving_mode=args.serving_mode,
+                    model_type=args.model_type,
+                    device_type=args.device_type,
+                    min_attn_bs=attn_bs,
+                    max_attn_bs=attn_bs,
+                    min_die=args.min_die,
+                    max_die=args.max_die,
+                    die_step=args.die_step,
+                    tpot=-1,
+                    kv_len=kv_len,
+                    micro_batch_num=1,
+                    next_n=args.next_n,
+                    multi_token_ratio=args.multi_token_ratio,
+                    attn_tensor_parallel=args.attn_tensor_parallel,
+                    ffn_tensor_parallel=args.ffn_tensor_parallel,
+                    deployment_mode=args.deployment_mode,
+                    device_type2=args.device_type2,
+                    min_die2=args.min_die2,
+                    max_die2=args.max_die2,
+                    die_step2=args.die_step2
+                )
+                deepep_search = DeepEpSearch(config)
+                deepep_search.deployment()
+    else:
+        raise ValueError(f"Invalid serving mode: {args.serving_mode}")
+
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     add_arguments(parser)
@@ -141,6 +223,8 @@ def main():
         return
 
     import subprocess
+    is_constraint_mode = args.tpot is not None
+    
     throughput_cmd = [
         "python", "src/visualization/throughput.py",
         "--model_type", args.model_type,
@@ -161,27 +245,48 @@ def main():
     else:
         total_dies = list(range(args.min_die, args.max_die + 1, args.die_step))
     throughput_cmd.extend(["--micro_batch_num", "2", "3"])
-    throughput_cmd.extend(["--tpot_list"] + [str(t) for t in args.tpot])
+    
+    if is_constraint_mode:
+        throughput_cmd.extend(["--tpot_list"] + [str(t) for t in args.tpot])
+    else:
+        throughput_cmd.extend(["--attn_bs_list"] + [str(a) for a in args.attn_bs])
+    
     throughput_cmd.extend(["--kv_len_list"] + [str(k) for k in args.kv_len])
     throughput_cmd.extend(["--total_die"] + [str(t) for t in total_dies])
     subprocess.run(throughput_cmd)
 
-    for tpot in args.tpot:
-        for kv_len in args.kv_len:
-            # Construct file name based on deployment mode
-            if args.deployment_mode == "Heterogeneous":
-                device_type2_enum = DeviceType(args.device_type2)
-                file_name = f"{DeviceType(args.device_type).name}_{device_type2_enum.name}-{ModelType(args.model_type).name}-tpot{tpot}-kv_len{kv_len}.csv"
-            else:
-                file_name = f"{DeviceType(args.device_type).name}-{ModelType(args.model_type).name}-tpot{tpot}-kv_len{kv_len}.csv"
-            pipeline_cmd = [
-                "python", "src/visualization/pipeline.py",
-                "--file_name", file_name,
-                "--deployment_mode", args.deployment_mode,
-            ]
-            if args.deployment_mode == "Heterogeneous":
-                pipeline_cmd.extend(["--device_type2", args.device_type2])
-            subprocess.run(pipeline_cmd)
+    if is_constraint_mode:
+        for tpot in args.tpot:
+            for kv_len in args.kv_len:
+                if args.deployment_mode == "Heterogeneous":
+                    device_type2_enum = DeviceType(args.device_type2)
+                    file_name = f"{DeviceType(args.device_type).name}_{device_type2_enum.name}-{ModelType(args.model_type).name}-tpot{tpot}-kv_len{kv_len}.csv"
+                else:
+                    file_name = f"{DeviceType(args.device_type).name}-{ModelType(args.model_type).name}-tpot{tpot}-kv_len{kv_len}.csv"
+                pipeline_cmd = [
+                    "python", "src/visualization/pipeline.py",
+                    "--file_name", file_name,
+                    "--deployment_mode", args.deployment_mode,
+                ]
+                if args.deployment_mode == "Heterogeneous":
+                    pipeline_cmd.extend(["--device_type2", args.device_type2])
+                subprocess.run(pipeline_cmd)
+    else:
+        for attn_bs in args.attn_bs:
+            for kv_len in args.kv_len:
+                if args.deployment_mode == "Heterogeneous":
+                    device_type2_enum = DeviceType(args.device_type2)
+                    file_name = f"{DeviceType(args.device_type).name}_{device_type2_enum.name}-{ModelType(args.model_type).name}-attn_bs{attn_bs}-kv_len{kv_len}.csv"
+                else:
+                    file_name = f"{DeviceType(args.device_type).name}-{ModelType(args.model_type).name}-attn_bs{attn_bs}-kv_len{kv_len}.csv"
+                pipeline_cmd = [
+                    "python", "src/visualization/pipeline.py",
+                    "--file_name", file_name,
+                    "--deployment_mode", args.deployment_mode,
+                ]
+                if args.deployment_mode == "Heterogeneous":
+                    pipeline_cmd.extend(["--device_type2", args.device_type2])
+                subprocess.run(pipeline_cmd)
 
 
 if __name__ == "__main__":
