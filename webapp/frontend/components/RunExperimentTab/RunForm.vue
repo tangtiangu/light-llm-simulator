@@ -91,8 +91,13 @@
     <div class="section">
       <h4>Simulation Targets</h4>
       <div class="field">
-        <label>TPOT Targets (comma separated)</label>
+        <label>Attention Batch Size (comma separated)</label>
+        <input v-model="attnBsInput" placeholder="64,128,256" />
+      </div>
+      <div class="field">
+        <label>TPOT Targets (optional, comma separated)</label>
         <input v-model="tpotInput" placeholder="20,50,70,100,150" />
+        <p class="field-note">If TPOT is specified, uses constraint mode. If empty, uses direct calculation mode with attn_bs.</p>
       </div>
       <div class="field">
         <label>KV Length (comma separated)</label>
@@ -185,7 +190,8 @@ export default {
       ffn_tensor_parallel: 1
     });
 
-    const tpotInput = ref('50');
+    const attnBsInput = ref('128');
+    const tpotInput = ref('');
     const kvLenInput = ref('4096');
     const mbnInput = ref('3');
     const isSubmitting = ref(false);
@@ -261,13 +267,22 @@ export default {
     };
 
     const handleSubmit = async () => {
+      const parsedTpot = parseList(tpotInput.value);
+      const parsedAttnBs = parseList(attnBsInput.value);
+
+      if (parsedTpot.length === 0 && parsedAttnBs.length === 0) {
+        error.value = 'Either TPOT or Attention Batch Size must be provided';
+        return;
+      }
+
       isSubmitting.value = true;
       error.value = null;
 
       try {
         const payload = {
           ...form.value,
-          tpot: parseList(tpotInput.value),
+          tpot: parsedTpot,
+          attn_bs: parsedAttnBs,
           kv_len: parseList(kvLenInput.value),
           micro_batch_num: parseList(mbnInput.value)
         };
@@ -283,6 +298,7 @@ export default {
 
     return {
       form,
+      attnBsInput,
       tpotInput,
       kvLenInput,
       mbnInput,
@@ -409,6 +425,12 @@ details[open] summary::after {
   padding: 12px;
   border-radius: 6px;
   margin-top: 16px;
+}
+
+.field-note {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 4px;
 }
 
 @media (max-width: 720px) {
