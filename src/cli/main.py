@@ -5,12 +5,11 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from conf.config import Config
+from conf.common import DIRECT_MODE_TPOT_SENTINEL
 from src.search.afd import AfdSearch
 from src.search.deepep import DeepEpSearch
 from conf.model_config import ModelType
 from conf.hardware_config import DeviceType
-
-DIRECT_MODE_TPOT_SENTINEL = -1
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:

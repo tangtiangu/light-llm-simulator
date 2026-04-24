@@ -1,5 +1,6 @@
 from conf.model_config import ModelConfig, ModelType
 from conf.hardware_config import HWConf, DeviceType
+from conf.common import DIRECT_MODE_TPOT_SENTINEL
 import math
 from typing import Optional
 
@@ -28,8 +29,8 @@ class Config:
         min_die: int,
         max_die: int,
         die_step: int,
-        tpot: Optional[list[int]],
-        attn_bs: Optional[list[int]],
+        tpot: Optional[int | list[int]],
+        attn_bs: Optional[int | list[int]],
         kv_len: list[int],
         micro_batch_num: list[int],
         next_n: int,
@@ -118,8 +119,6 @@ class Config:
             self.max_die2 = max_die
             self.die_step2 = die_step
 
-        DIRECT_MODE_TPOT_SENTINEL = -1
-
         if tpot is not None and not isinstance(tpot, list):
             tpot = [tpot]
         if attn_bs is not None and not isinstance(attn_bs, list):
@@ -127,7 +126,7 @@ class Config:
 
         is_sentinel = (tpot is not None and len(tpot) == 1 and tpot[0] == DIRECT_MODE_TPOT_SENTINEL)
 
-        if tpot is not None and len(tpot) > 0 and not is_sentinel:
+        if tpot is not None and not is_sentinel:
             self.tpot = tpot[0]
             self.attn_bs = None
             self.mode = "constraint"
