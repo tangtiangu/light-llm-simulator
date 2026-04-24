@@ -1,5 +1,5 @@
 from src.ops.base import BaseOp
-from conf.common import BLOCK_SIZE
+from conf.common import BLOCK_SIZE, SPARSE_COUNT
 from conf.common import US_2_SEC
 import math
 
@@ -135,6 +135,77 @@ class MLAFlashAttentionInt8(BaseOp):
 
         self.total_data_movement = q_nope_block + q_rope_block + kv_nope_block + kv_rope_block + o_block
         self.memory_time = self.total_data_movement / self.local_memory_bandwidth / self.memory_ratio
+        return self.memory_time
+
+
+class MLASparseFlashAttentionFP16(BaseOp):
+    '''
+    Description:
+        Sparse Flash Attention for MLA models in FP16 precision.
+
+        - query: [B, S, N1, D+rope_head_dim] (nope + rope parts)
+        - key/value: stored in paged KV cache, accessed via sparse_indices + block_table
+        - sparse_indices: [B, q_blocks, N2, K] specifies which KV blocks to attend to
+        - Only selected KV blocks are loaded and computed
+
+    Attributes:
+        config: The configuration of the search task.
+    '''
+    def __init__(self, config, elem_size=2):
+        super().__init__("MLASparseFlashAttentionFP16", config.aichip_config, elem_size, static_cost=70*US_2_SEC)
+        self.model_config = config.model_config
+        self.attn_bs = config.attn_bs
+        self.kv_len = config.kv_len
+        self.seq_len = config.seq_len
+
+    def compute_cost(self):
+        # qk_position = 2 * b * s * n * sparse_count * (512+64)
+        # BF16, cube core
+        # q = [b, s, n, (512+64)]
+        # k = [b, sparse_count, n, (512+64)]
+        qk_flops = (
+            2 * self.attn_bs * self.seq_len * self.model_config.num_attention_heads *
+            SPARSE_COUNT * (self.model_config.kv_lora_rank + self.model_config.qk_rope_head_dim)
+        )
+        # softmax: 5 * B * N1 * S * sparse_count
+        softmax_flops = (
+            5 * self.attn_bs * self.model_config.num_attention_heads * self.seq_len * SPARSE_COUNT
+        )
+        # qkv_matmul (sv): 2 * B * N1 * S * D * sparse_count
+        # BF16, cube core
+        # - output_softmax = [B, 128/TP, S, sparse_count]
+        # - v_nope = [B, 128/TP, sparse_count, 512]
+        # - output_matmul = [B, 128/TP, S, 512]
+        sv_flops = (
+            2 * self.attn_bs * self.model_config.num_attention_heads *
+            self.seq_len * self.model_config.kv_lora_rank * SPARSE_COUNT
+        )
+        self.total_computation = qk_flops + softmax_flops + sv_flops
+        self.compute_time = (
+            qk_flops / self.cube_flops_fp16 +
+            softmax_flops / self.vec_flops_fp16 +
+            sv_flops / self.cube_flops_fp16
+        )
+        return self.compute_time
+
+    def memory_cost(self):
+        # q_block: [B, N1, S, D+R] bf16
+        q_bytes = self.elem_size * self.attn_bs * self.model_config.num_attention_heads * self.seq_len * (self.model_config.kv_lora_rank + self.model_config.qk_rope_head_dim)
+        # kv_block: only selected blocks, key+value bf16, N2=1 for MLA
+        # key(D+R) + value(D)
+        k_bytes = self.elem_size * self.attn_bs * SPARSE_COUNT * (self.model_config.kv_lora_rank + self.model_config.qk_rope_head_dim)
+        v_bytes = self.elem_size * self.attn_bs * SPARSE_COUNT * self.model_config.kv_lora_rank
+        # sparse_indices: [B, S, SPARSE_COUNT] int32
+        sparse_idx_bytes = self.attn_bs * self.seq_len * SPARSE_COUNT * 4
+        # block_table: [b, kv_len/block_size] int32
+        block_table_bytes = self.attn_bs * self.kv_len / BLOCK_SIZE * 4
+        # o_block: [B, N1, S, D] bf16
+        o_bytes = self.elem_size * self.attn_bs * self.model_config.num_attention_heads * self.seq_len * self.model_config.kv_lora_rank
+        # softmaxMaxOut+softmaxSumOut: [B, N2, S1, N1/N2] FLOAT
+        softmax_out_bytes = 2 * 4 * self.attn_bs * self.seq_len * self.model_config.num_attention_heads
+
+        self.total_data_movement = q_bytes + k_bytes + v_bytes + o_bytes + sparse_idx_bytes + block_table_bytes + softmax_out_bytes
+        self.memory_time = self.total_data_movement / self.local_memory_bandwidth
         return self.memory_time
 
 

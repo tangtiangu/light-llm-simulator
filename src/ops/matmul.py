@@ -14,23 +14,22 @@ class OpMatmul(BaseOp):
         k: The number of columns of the second matrix.
         aichip_config: The hardware configuration.
     '''
-    def __init__(self, name, m, n, k, aichip_config):
+    def __init__(self, name, m, n, k, aichip_config, elem_size=4):
         self.m = m
         self.n = n
         self.k = k
-        self.elem_size = 4
-        self.memory_ratio = 0.5
-        super().__init__(name, aichip_config, self.elem_size)
+        self.elem_size = elem_size
+        super().__init__(name, aichip_config, self.elem_size, static_cost=10*US_2_SEC)
 
     def compute_cost(self):
         self.total_computation = 2 * self.m * self.n * self.k
-        self.compute_time = self.total_computation / self.cube_flops_fp16 / 0.8
+        self.compute_time = self.total_computation / self.cube_flops
         return self.compute_time
 
     def memory_cost(self):
         # input type: float, output type: float
         self.total_data_movement = self.elem_size * (self.m * self.n + self.n * self.k + self.m * self.k)
-        self.memory_time = self.total_data_movement / self.local_memory_bandwidth / self.memory_ratio
+        self.memory_time = self.total_data_movement / self.local_memory_bandwidth
         return self.memory_time
 
 
