@@ -28,7 +28,8 @@ class Config:
         min_die: int,
         max_die: int,
         die_step: int,
-        tpot: list[int],
+        tpot: Optional[list[int]],
+        attn_bs: Optional[list[int]],
         kv_len: list[int],
         micro_batch_num: list[int],
         next_n: int,
@@ -56,7 +57,8 @@ class Config:
             min_die: The min number of die to explore (for attention in Heterogeneous mode).
             max_die: The max number of die to explore (for attention in Heterogeneous mode).
             die_step: The step size of the die to explore.
-            tpot: The target TPOT.
+            tpot: The target TPOT for constraint mode. None for direct calculation mode.
+            attn_bs: The attention batch size list for direct calculation mode. Required when tpot is None.
             kv_len: The input sequence length.
             micro_batch_num: The micro batch number.
             next_n: Predict the next n tokens through the MTP(Multi-Token Prediction) technique.
@@ -116,15 +118,36 @@ class Config:
             self.max_die2 = max_die
             self.die_step2 = die_step
 
-        self.tpot = tpot
+        DIRECT_MODE_TPOT_SENTINEL = -1
+
+        if tpot is not None and not isinstance(tpot, list):
+            tpot = [tpot]
+        if attn_bs is not None and not isinstance(attn_bs, list):
+            attn_bs = [attn_bs]
+
+        is_sentinel = (tpot is not None and len(tpot) == 1 and tpot[0] == DIRECT_MODE_TPOT_SENTINEL)
+
+        if tpot is not None and len(tpot) > 0 and not is_sentinel:
+            self.tpot = tpot[0]
+            self.attn_bs = None
+            self.mode = "constraint"
+        else:
+            self.tpot = None
+            if attn_bs is None or len(attn_bs) == 0:
+                raise ValueError("attn_bs must be specified when tpot is not provided")
+            self.attn_bs = attn_bs
+            self.mode = "direct"
+
         self.kv_len = kv_len
         self.micro_batch_num = micro_batch_num
         self.seq_len = next_n + 1
         self.multi_token_ratio = multi_token_ratio
         self.attn_tensor_parallel = attn_tensor_parallel
         self.ffn_tensor_parallel = ffn_tensor_parallel
-        self.attn_bs = min_attn_bs
-        self.ffn_bs = self.attn_bs * self.model_config.num_experts_per_tok
+        if self.mode == "constraint":
+            self.ffn_bs = min_attn_bs * self.model_config.num_experts_per_tok
+        else:
+            self.ffn_bs = None
         self.attn_die = min_die
         self.ffn_die = min_die
         self.routed_expert_per_die = Config.calc_routed_expert_per_die(

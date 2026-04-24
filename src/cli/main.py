@@ -120,6 +120,7 @@ def _run_search_for_config(args, tpot, attn_bs, kv_len, micro_batch_num):
         max_die=args.max_die,
         die_step=args.die_step,
         tpot=tpot,
+        attn_bs=attn_bs,
         kv_len=kv_len,
         micro_batch_num=micro_batch_num,
         next_n=args.next_n,
