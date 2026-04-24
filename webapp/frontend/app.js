@@ -92,8 +92,8 @@ function normalizeCsvSelection(selection = {}) {
 }
 
 function firstListValue(value, fallback) {
-  if (Array.isArray(value) && value.length > 0) {
-    return value[0];
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value[0] : fallback;
   }
   return value ?? fallback;
 }
