@@ -251,6 +251,8 @@ class DeepEpSearch(BaseSearch):
 
             # Final evaluation with optimal attn_bs_min
             r = self._evaluate_config(attn_bs_min, temp_config, routed_expert_per_die)
+            if r is None:
+                continue
             r['attn_bs'] = attn_bs_min
             r['throughput'] = attn_bs_min / r['e2e_time'] / MS_2_SEC
             r['available_memory'] = aichip_config.aichip_memory * BYTE_2_GB * MEMORY_THRESHOLD_RATIO - r['used_memory']
