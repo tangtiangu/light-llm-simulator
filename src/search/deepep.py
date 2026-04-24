@@ -239,6 +239,9 @@ class DeepEpSearch(BaseSearch):
             while attn_bs_max - attn_bs_min > 1:
                 attn_bs = (attn_bs_min + attn_bs_max) // 2
                 r = self._evaluate_config(attn_bs, temp_config, routed_expert_per_die)
+                if r is None:
+                    attn_bs_max = attn_bs
+                    continue
 
                 if (r['e2e_time'] > self.config.tpot or
                     r['used_memory'] > aichip_config.aichip_memory * BYTE_2_GB * MEMORY_THRESHOLD_RATIO):
