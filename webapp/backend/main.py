@@ -42,7 +42,8 @@ class RunRequest(BaseModel):
     min_die: int = 16
     max_die: int = 768
     die_step: Optional[int] = 16
-    tpot: Optional[List[int]] = [50]
+    tpot: Optional[List[int]] = None
+    attn_bs: Optional[List[int]] = None
     kv_len: Optional[List[int]] = [4096]
     micro_batch_num: Optional[List[int]] = [2]
     next_n: int = 1
@@ -77,6 +78,8 @@ def _sanitize_args(req: RunRequest) -> List[str]:
         args += ["--die_step", str(req.die_step)]
     if req.tpot:
         args += ["--tpot"] + [str(x) for x in req.tpot]
+    if req.attn_bs:
+        args += ["--attn_bs"] + [str(x) for x in req.attn_bs]
     if req.kv_len:
         args += ["--kv_len"] + [str(x) for x in req.kv_len]
     if req.micro_batch_num:
@@ -105,6 +108,8 @@ def _run_process(run_dir: Path, args: List[str]):
 
 @api.post("/run")
 def start_run(req: RunRequest, background_tasks: BackgroundTasks):
+    if not req.tpot and not req.attn_bs:
+        raise HTTPException(status_code=400, detail="At least one of 'tpot' or 'attn_bs' must be provided")
     run_id = uuid4().hex[:8]
     run_dir = RUN_ROOT / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -137,11 +142,14 @@ def list_results(
     model_type: str,
     device_type: str,
     total_die: int,
-    tpot: int,
-    kv_len: int,
+    tpot: Optional[int] = None,
+    attn_bs: Optional[int] = None,
+    kv_len: int = 4096,
     deployment_mode: str = "Homogeneous",
     device_type2: Optional[str] = None
 ):
+    if not tpot and not attn_bs:
+        raise HTTPException(status_code=400, detail="At least one of 'tpot' or 'attn_bs' must be provided")
     # Validate deployment_mode
     if deployment_mode not in ("Homogeneous", "Heterogeneous"):
         raise HTTPException(status_code=400, detail=f"Invalid deployment_mode: {deployment_mode}. Must be 'Homogeneous' or 'Heterogeneous'")
@@ -160,30 +168,32 @@ def list_results(
                 existing.append(relative_url)
         return existing
 
+    mode_suffix = f"bs{attn_bs}" if attn_bs else f"tpot{tpot}"
+
     # Build image candidates based on deployment mode
     if deployment_mode == "Heterogeneous":
         # Heterogeneous mode
         throughput_candidates = [
             f"/data/images/throughput/heterogeneous/{device_type}_{device_type2}-{model_type}-mbn2-total_die{total_die}.png",
             f"/data/images/throughput/heterogeneous/{device_type}_{device_type2}-{model_type}-mbn3-total_die{total_die}.png",
-            f"/data/images/throughput/heterogeneous/{device_type}_{device_type2}-{model_type}-tpot{tpot}-kv_len{kv_len}.png",
+            f"/data/images/throughput/heterogeneous/{device_type}_{device_type2}-{model_type}-{mode_suffix}-kv_len{kv_len}.png",
         ]
         pipeline_candidates = [
-            f"/data/images/pipeline/deepep/heterogeneous/{device_type}_{device_type2}-{model_type}-tpot{tpot}-kv_len{kv_len}-deepep-mbn1-total_die{total_die}.png",
-            f"/data/images/pipeline/afd/heterogeneous/{device_type}_{device_type2}-{model_type}-tpot{tpot}-kv_len{kv_len}-afd-mbn2-total_die{total_die}.png",
-            f"/data/images/pipeline/afd/heterogeneous/{device_type}_{device_type2}-{model_type}-tpot{tpot}-kv_len{kv_len}-afd-mbn3-total_die{total_die}.png",
+            f"/data/images/pipeline/deepep/heterogeneous/{device_type}_{device_type2}-{model_type}-{mode_suffix}-kv_len{kv_len}-deepep-mbn1-total_die{total_die}.png",
+            f"/data/images/pipeline/afd/heterogeneous/{device_type}_{device_type2}-{model_type}-{mode_suffix}-kv_len{kv_len}-afd-mbn2-total_die{total_die}.png",
+            f"/data/images/pipeline/afd/heterogeneous/{device_type}_{device_type2}-{model_type}-{mode_suffix}-kv_len{kv_len}-afd-mbn3-total_die{total_die}.png",
         ]
     else:
         # Homogeneous mode
         throughput_candidates = [
             f"/data/images/throughput/homogeneous/{device_type}-{model_type}-mbn2-total_die{total_die}.png",
             f"/data/images/throughput/homogeneous/{device_type}-{model_type}-mbn3-total_die{total_die}.png",
-            f"/data/images/throughput/homogeneous/{device_type}-{model_type}-tpot{tpot}-kv_len{kv_len}.png",
+            f"/data/images/throughput/homogeneous/{device_type}-{model_type}-{mode_suffix}-kv_len{kv_len}.png",
         ]
         pipeline_candidates = [
-            f"/data/images/pipeline/deepep/homogeneous/{device_type}-{model_type}-tpot{tpot}-kv_len{kv_len}-deepep-mbn1-total_die{total_die}.png",
-            f"/data/images/pipeline/afd/homogeneous/{device_type}-{model_type}-tpot{tpot}-kv_len{kv_len}-afd-mbn2-total_die{total_die}.png",
-            f"/data/images/pipeline/afd/homogeneous/{device_type}-{model_type}-tpot{tpot}-kv_len{kv_len}-afd-mbn3-total_die{total_die}.png",
+            f"/data/images/pipeline/deepep/homogeneous/{device_type}-{model_type}-{mode_suffix}-kv_len{kv_len}-deepep-mbn1-total_die{total_die}.png",
+            f"/data/images/pipeline/afd/homogeneous/{device_type}-{model_type}-{mode_suffix}-kv_len{kv_len}-afd-mbn2-total_die{total_die}.png",
+            f"/data/images/pipeline/afd/homogeneous/{device_type}-{model_type}-{mode_suffix}-kv_len{kv_len}-afd-mbn3-total_die{total_die}.png",
         ]
     throughput_images = existing_image_urls(throughput_candidates)
     pipeline_images = existing_image_urls(pipeline_candidates)
@@ -247,14 +257,17 @@ def get_constants():
 def fetch_csv_results(
     device_type: str,
     model_type: str,
-    tpot: int,
-    kv_len: int,
+    tpot: Optional[int] = None,
+    attn_bs: Optional[int] = None,
+    kv_len: int = 4096,
     serving_mode: str = "AFD",
     deployment_mode: str = "Homogeneous",
     device_type2: Optional[str] = None,
     micro_batch_num: Optional[int] = 1,
     total_die: Optional[int] = None,
 ):
+    if not tpot and not attn_bs:
+        raise HTTPException(status_code=400, detail="At least one of 'tpot' or 'attn_bs' must be provided")
     # Validate deployment_mode
     if deployment_mode not in ("Homogeneous", "Heterogeneous"):
         raise HTTPException(status_code=400, detail=f"Invalid deployment_mode: {deployment_mode}. Must be 'Homogeneous' or 'Heterogeneous'")
@@ -276,11 +289,13 @@ def fetch_csv_results(
     else:
         raise HTTPException(status_code=400, detail="Unsupported serving_mode")
 
+    mode_suffix = f"bs{attn_bs}" if attn_bs else f"tpot{tpot}"
+
     # Determine file name (no -heterogeneous suffix since we use directory structure)
     if deployment_mode == "Heterogeneous":
-        file_name = f"{device_type}_{device_type2}-{model_type}-tpot{tpot}-kv_len{kv_len}.csv"
+        file_name = f"{device_type}_{device_type2}-{model_type}-{mode_suffix}-kv_len{kv_len}.csv"
     else:
-        file_name = f"{device_type}-{model_type}-tpot{tpot}-kv_len{kv_len}.csv"
+        file_name = f"{device_type}-{model_type}-{mode_suffix}-kv_len{kv_len}.csv"
 
     path = dir_name / file_name
     if not path.exists():
