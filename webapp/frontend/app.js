@@ -99,7 +99,6 @@ function firstListValue(value, fallback) {
 }
 
 function deriveCsvSelectionFromRunParams(params = {}) {
-  const hasTpot = params.tpot && params.tpot.length > 0;
   const hasAttnBs = params.attn_bs && params.attn_bs.length > 0;
 
   return {
