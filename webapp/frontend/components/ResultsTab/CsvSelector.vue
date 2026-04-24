@@ -57,10 +57,10 @@
       </label>
 
       <label class="field">
-        <span>TPOT</span>
-        <input type="number" v-model.number="selection.tpot" list="tpot-list" min="1" />
-        <datalist id="tpot-list">
-          <option v-for="tpot in tpotSuggestions" :key="tpot" :value="tpot" />
+        <span>Attention Batch Size</span>
+        <input type="number" v-model.number="selection.attnBs" list="attnbs-list" min="1" />
+        <datalist id="attnbs-list">
+          <option v-for="bs in attnBsSuggestions" :key="bs" :value="bs" />
         </datalist>
       </label>
 
@@ -99,7 +99,7 @@ const DEFAULT_SELECTION = {
   deviceType: 'ASCENDDAVID120',
   deviceType2: 'ASCEND910B2',
   modelType: 'DEEPSEEK_V3',
-  tpot: 50,
+  attnBs: 128,
   kvLen: 4096,
   microBatchNum: 3,
   totalDie: 128
@@ -134,7 +134,7 @@ const DEVICE_OPTIONS = [
   { value: 'NvidiaH100SXM', label: 'Nvidia H100 SXM' }
 ];
 
-const TPOT_SUGGESTIONS = [20, 50, 70, 100, 150];
+const ATTN_BS_SUGGESTIONS = [64, 128, 256, 512, 1024];
 const KV_LEN_SUGGESTIONS = [2048, 4096, 8192, 16384, 131072];
 const MICRO_BATCH_OPTIONS = [2, 3];
 
@@ -149,7 +149,7 @@ function normalizeSelection(selection, includeTotalDie = false) {
     deviceType: selection.deviceType || DEFAULT_SELECTION.deviceType,
     deviceType2: selection.deviceType2 || DEFAULT_SELECTION.deviceType2,
     modelType: selection.modelType || DEFAULT_SELECTION.modelType,
-    tpot: Number(selection.tpot) || DEFAULT_SELECTION.tpot,
+    attnBs: Number(selection.attnBs) || DEFAULT_SELECTION.attnBs,
     kvLen: Number(selection.kvLen) || DEFAULT_SELECTION.kvLen,
     microBatchNum: Number(selection.microBatchNum) || DEFAULT_SELECTION.microBatchNum
   };
@@ -209,7 +209,7 @@ export default {
           device_type: params.deviceType,
           device_type2: params.deviceType2,
           model_type: params.modelType,
-          tpot: String(params.tpot),
+          attn_bs: String(params.attnBs),
           kv_len: String(params.kvLen),
           micro_batch_num: String(params.microBatchNum)
         });
@@ -240,7 +240,7 @@ export default {
       deploymentModes: DEPLOYMENT_MODES,
       modelOptions: MODEL_OPTIONS,
       deviceOptions: DEVICE_OPTIONS,
-      tpotSuggestions: TPOT_SUGGESTIONS,
+      attnBsSuggestions: ATTN_BS_SUGGESTIONS,
       kvLenSuggestions: KV_LEN_SUGGESTIONS,
       microBatchOptions: MICRO_BATCH_OPTIONS,
       handleLoadCsv
