@@ -110,6 +110,8 @@ def _run_process(run_dir: Path, args: List[str]):
 def start_run(req: RunRequest, background_tasks: BackgroundTasks):
     if not req.tpot and not req.attn_bs:
         raise HTTPException(status_code=400, detail="At least one of 'tpot' or 'attn_bs' must be provided")
+    if req.deployment_mode == "Heterogeneous" and not req.device_type2:
+        raise HTTPException(status_code=400, detail="device_type2 is required when deployment_mode is 'Heterogeneous'")
     run_id = uuid4().hex[:8]
     run_dir = RUN_ROOT / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
