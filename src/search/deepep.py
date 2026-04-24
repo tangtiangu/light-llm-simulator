@@ -5,7 +5,7 @@ from conf.common import US_2_MS, SEC_2_US, BYTE_2_GB, MEMORY_THRESHOLD_RATIO, MS
 from src.search.base import BaseSearch
 from src.model.register import get_model, get_attention_family
 from conf.config import Config
-from conf.hardware_config import HWConf
+from conf.hardware_config import HWConf, DeviceType
 
 
 class DeepEpSearch(BaseSearch):
@@ -70,6 +70,9 @@ class DeepEpSearch(BaseSearch):
             kv_size * self.config.micro_batch_num + attn_static_memory +
             mlp_static_memory + ffn_dynamic_memory + ffn_static_memory
         )
+        aichip_config = HWConf.create(DeviceType(temp_config.device_type))
+        if used_memory > aichip_config.aichip_memory * BYTE_2_GB * MEMORY_THRESHOLD_RATIO:
+            return None
         e2e_time_per_moe_layer = attn_time + moe_time + commu_time
         e2e_time = e2e_time_per_moe_layer * (self.config.model_config.num_moe_layers + self.config.seq_len - 1)
         embedding = model["embedding"]
@@ -112,8 +115,6 @@ class DeepEpSearch(BaseSearch):
         Returns:
             dict with all result fields, or None if memory constraint is violated.
         """
-        from conf.hardware_config import DeviceType
-
         if get_attention_family(self.config.model_type) == "MLA":
             kv_size, attn_static_memory, mlp_static_memory, per_router_expert_memory = self.compute_MLA_memory_size(
                 self.config.model_config, attn_bs
@@ -198,8 +199,6 @@ class DeepEpSearch(BaseSearch):
         Returns:
             Dictionary mapping total_die -> throughput
         '''
-        from conf.hardware_config import DeviceType, HWConf
-
         device_type = DeviceType(device_type_str)
         aichip_config = HWConf.create(device_type)
 
@@ -269,8 +268,6 @@ class DeepEpSearch(BaseSearch):
         Returns:
             Dictionary mapping total_die -> result dict
         '''
-        from conf.hardware_config import DeviceType
-
         device_type = DeviceType(device_type_str)
         aichip_config = HWConf.create(device_type)
 
