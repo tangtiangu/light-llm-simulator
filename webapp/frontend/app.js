@@ -11,15 +11,22 @@ const DEFAULT_CSV_SELECTION = {
   deviceType: "ASCENDDAVID120",
   deviceType2: "ASCEND910B2",
   modelType: "DEEPSEEK_V3",
-  tpot: 50,
+  attnBs: 128,
   kvLen: 4096,
   microBatchNum: 3,
   totalDie: 128,
 };
 
 const LEGACY_DEFAULT_CSV_SELECTION = {
-  ...DEFAULT_CSV_SELECTION,
+  servingMode: "AFD",
+  deploymentMode: "Heterogeneous",
   deviceType: "ASCENDA3_Pod",
+  deviceType2: "ASCEND910B2",
+  modelType: "DEEPSEEK_V3",
+  attnBs: 128,
+  kvLen: 4096,
+  microBatchNum: 3,
+  totalDie: 128,
 };
 
 const MODEL_VALUE_TO_NAME = {
@@ -77,7 +84,7 @@ function normalizeCsvSelection(selection = {}) {
   return {
     ...DEFAULT_CSV_SELECTION,
     ...selection,
-    tpot: Number(selection.tpot ?? DEFAULT_CSV_SELECTION.tpot),
+    attnBs: Number(selection.attnBs ?? DEFAULT_CSV_SELECTION.attnBs),
     kvLen: Number(selection.kvLen ?? DEFAULT_CSV_SELECTION.kvLen),
     microBatchNum: Number(selection.microBatchNum ?? DEFAULT_CSV_SELECTION.microBatchNum),
     totalDie: Number(selection.totalDie ?? DEFAULT_CSV_SELECTION.totalDie),
@@ -92,11 +99,16 @@ function firstListValue(value, fallback) {
 }
 
 function deriveCsvSelectionFromRunParams(params = {}) {
+  const hasTpot = params.tpot && params.tpot.length > 0;
+  const hasAttnBs = params.attn_bs && params.attn_bs.length > 0;
+
   return {
     servingMode: params.serving_mode || DEFAULT_CSV_SELECTION.servingMode,
+    deploymentMode: params.deployment_mode || DEFAULT_CSV_SELECTION.deploymentMode,
     deviceType: DEVICE_VALUE_TO_NAME[params.device_type] || params.device_type || DEFAULT_CSV_SELECTION.deviceType,
+    deviceType2: DEVICE_VALUE_TO_NAME[params.device_type2] || params.device_type2 || DEFAULT_CSV_SELECTION.deviceType2,
     modelType: MODEL_VALUE_TO_NAME[params.model_type] || params.model_type || DEFAULT_CSV_SELECTION.modelType,
-    tpot: Number(firstListValue(params.tpot, DEFAULT_CSV_SELECTION.tpot)),
+    attnBs: hasAttnBs ? Number(firstListValue(params.attn_bs, DEFAULT_CSV_SELECTION.attnBs)) : DEFAULT_CSV_SELECTION.attnBs,
     kvLen: Number(firstListValue(params.kv_len, DEFAULT_CSV_SELECTION.kvLen)),
     microBatchNum: Number(
       params.serving_mode === "DeepEP"
@@ -120,7 +132,7 @@ function shouldSeedFromLatestRun(storedSelection, latestRun) {
     normalizedStored.servingMode === DEFAULT_CSV_SELECTION.servingMode &&
     normalizedStored.deviceType === DEFAULT_CSV_SELECTION.deviceType &&
     normalizedStored.modelType === DEFAULT_CSV_SELECTION.modelType &&
-    normalizedStored.tpot === DEFAULT_CSV_SELECTION.tpot &&
+    normalizedStored.attnBs === DEFAULT_CSV_SELECTION.attnBs &&
     normalizedStored.kvLen === DEFAULT_CSV_SELECTION.kvLen &&
     normalizedStored.microBatchNum === DEFAULT_CSV_SELECTION.microBatchNum;
 
@@ -128,7 +140,7 @@ function shouldSeedFromLatestRun(storedSelection, latestRun) {
     normalizedStored.servingMode === LEGACY_DEFAULT_CSV_SELECTION.servingMode &&
     normalizedStored.deviceType === LEGACY_DEFAULT_CSV_SELECTION.deviceType &&
     normalizedStored.modelType === LEGACY_DEFAULT_CSV_SELECTION.modelType &&
-    normalizedStored.tpot === LEGACY_DEFAULT_CSV_SELECTION.tpot &&
+    normalizedStored.attnBs === LEGACY_DEFAULT_CSV_SELECTION.attnBs &&
     normalizedStored.kvLen === LEGACY_DEFAULT_CSV_SELECTION.kvLen &&
     normalizedStored.microBatchNum === LEGACY_DEFAULT_CSV_SELECTION.microBatchNum;
 
