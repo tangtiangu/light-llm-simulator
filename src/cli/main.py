@@ -10,6 +10,8 @@ from src.search.deepep import DeepEpSearch
 from conf.model_config import ModelType
 from conf.hardware_config import DeviceType
 
+DIRECT_MODE_TPOT_SENTINEL = -1
+
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     """
@@ -84,6 +86,11 @@ def run_search(args):
     if args.tpot is None and args.attn_bs is None:
         raise ValueError("Either --tpot or --attn_bs must be specified")
     
+    if args.attn_bs is not None:
+        for bs in args.attn_bs:
+            if not isinstance(bs, int) or bs <= 0:
+                raise ValueError(f"attn_bs values must be positive integers, got: {bs}")
+    
     is_constraint_mode = args.tpot is not None
     
     if is_constraint_mode:
@@ -92,138 +99,85 @@ def run_search(args):
         _run_direct_mode(args)
 
 
-def _run_constraint_mode(args):
-    """Constraint mode: binary search for max batchsize satisfying TPOT constraint."""
+def _run_search_for_config(args, tpot, attn_bs, kv_len, micro_batch_num):
+    """
+    Shared logic for running search with a specific configuration.
+    
+    Parameters:
+        args: Command line arguments
+        tpot: TPOT target (use DIRECT_MODE_TPOT_SENTINEL for direct mode)
+        attn_bs: Attention batch size (used as min/max in direct mode)
+        kv_len: KV cache length
+        micro_batch_num: Number of micro batches
+    """
+    config = Config(
+        serving_mode=args.serving_mode,
+        model_type=args.model_type,
+        device_type=args.device_type,
+        min_attn_bs=attn_bs if attn_bs is not None else args.min_attn_bs,
+        max_attn_bs=attn_bs if attn_bs is not None else args.max_attn_bs,
+        min_die=args.min_die,
+        max_die=args.max_die,
+        die_step=args.die_step,
+        tpot=tpot,
+        kv_len=kv_len,
+        micro_batch_num=micro_batch_num,
+        next_n=args.next_n,
+        multi_token_ratio=args.multi_token_ratio,
+        attn_tensor_parallel=args.attn_tensor_parallel,
+        ffn_tensor_parallel=args.ffn_tensor_parallel,
+        deployment_mode=args.deployment_mode,
+        device_type2=args.device_type2,
+        min_die2=args.min_die2,
+        max_die2=args.max_die2,
+        die_step2=args.die_step2
+    )
+    
     if args.serving_mode == "AFD":
-        for mbn in args.micro_batch_num:
-            for tpot in args.tpot:
-                for kv_len in args.kv_len:
-                    config = Config(
-                        serving_mode=args.serving_mode,
-                        model_type=args.model_type,
-                        device_type=args.device_type,
-                        min_attn_bs=args.min_attn_bs,
-                        max_attn_bs=args.max_attn_bs,
-                        min_die=args.min_die,
-                        max_die=args.max_die,
-                        die_step=args.die_step,
-                        tpot=tpot,
-                        kv_len=kv_len,
-                        micro_batch_num=mbn,
-                        next_n=args.next_n,
-                        multi_token_ratio=args.multi_token_ratio,
-                        attn_tensor_parallel=args.attn_tensor_parallel,
-                        ffn_tensor_parallel=args.ffn_tensor_parallel,
-                        deployment_mode=args.deployment_mode,
-                        device_type2=args.device_type2,
-                        min_die2=args.min_die2,
-                        max_die2=args.max_die2,
-                        die_step2=args.die_step2
-                    )
-                    afd_search = AfdSearch(config)
-                    afd_search.deployment()
+        search = AfdSearch(config)
     elif args.serving_mode == "DeepEP":
-        for tpot in args.tpot:
-            for kv_len in args.kv_len:
-                config = Config(
-                    serving_mode=args.serving_mode,
-                    model_type=args.model_type,
-                    device_type=args.device_type,
-                    min_attn_bs=args.min_attn_bs,
-                    max_attn_bs=args.max_attn_bs,
-                    min_die=args.min_die,
-                    max_die=args.max_die,
-                    die_step=args.die_step,
-                    tpot=tpot,
-                    kv_len=kv_len,
-                    micro_batch_num=1,
-                    next_n=args.next_n,
-                    multi_token_ratio=args.multi_token_ratio,
-                    attn_tensor_parallel=args.attn_tensor_parallel,
-                    ffn_tensor_parallel=args.ffn_tensor_parallel,
-                    deployment_mode=args.deployment_mode,
-                    device_type2=args.device_type2,
-                    min_die2=args.min_die2,
-                    max_die2=args.max_die2,
-                    die_step2=args.die_step2
-                )
-                deepep_search = DeepEpSearch(config)
-                deepep_search.deployment()
+        search = DeepEpSearch(config)
     else:
         raise ValueError(f"Invalid serving mode: {args.serving_mode}")
+    
+    search.deployment()
+
+
+def _run_constraint_mode(args):
+    """Constraint mode: binary search for max batchsize satisfying TPOT constraint."""
+    micro_batch_nums = args.micro_batch_num if args.serving_mode == "AFD" else [1]
+    
+    for mbn in micro_batch_nums:
+        for tpot in args.tpot:
+            for kv_len in args.kv_len:
+                _run_search_for_config(args, tpot=tpot, attn_bs=None, kv_len=kv_len, micro_batch_num=mbn)
 
 
 def _run_direct_mode(args):
     """Direct calculation mode: compute performance directly for each attn_bs value."""
-    if args.serving_mode == "AFD":
-        for mbn in args.micro_batch_num:
-            for attn_bs in args.attn_bs:
-                for kv_len in args.kv_len:
-                    config = Config(
-                        serving_mode=args.serving_mode,
-                        model_type=args.model_type,
-                        device_type=args.device_type,
-                        min_attn_bs=attn_bs,
-                        max_attn_bs=attn_bs,
-                        min_die=args.min_die,
-                        max_die=args.max_die,
-                        die_step=args.die_step,
-                        tpot=-1,
-                        kv_len=kv_len,
-                        micro_batch_num=mbn,
-                        next_n=args.next_n,
-                        multi_token_ratio=args.multi_token_ratio,
-                        attn_tensor_parallel=args.attn_tensor_parallel,
-                        ffn_tensor_parallel=args.ffn_tensor_parallel,
-                        deployment_mode=args.deployment_mode,
-                        device_type2=args.device_type2,
-                        min_die2=args.min_die2,
-                        max_die2=args.max_die2,
-                        die_step2=args.die_step2
-                    )
-                    afd_search = AfdSearch(config)
-                    afd_search.deployment()
-    elif args.serving_mode == "DeepEP":
+    micro_batch_nums = args.micro_batch_num if args.serving_mode == "AFD" else [1]
+    
+    for mbn in micro_batch_nums:
         for attn_bs in args.attn_bs:
             for kv_len in args.kv_len:
-                config = Config(
-                    serving_mode=args.serving_mode,
-                    model_type=args.model_type,
-                    device_type=args.device_type,
-                    min_attn_bs=attn_bs,
-                    max_attn_bs=attn_bs,
-                    min_die=args.min_die,
-                    max_die=args.max_die,
-                    die_step=args.die_step,
-                    tpot=-1,
-                    kv_len=kv_len,
-                    micro_batch_num=1,
-                    next_n=args.next_n,
-                    multi_token_ratio=args.multi_token_ratio,
-                    attn_tensor_parallel=args.attn_tensor_parallel,
-                    ffn_tensor_parallel=args.ffn_tensor_parallel,
-                    deployment_mode=args.deployment_mode,
-                    device_type2=args.device_type2,
-                    min_die2=args.min_die2,
-                    max_die2=args.max_die2,
-                    die_step2=args.die_step2
-                )
-                deepep_search = DeepEpSearch(config)
-                deepep_search.deployment()
-    else:
-        raise ValueError(f"Invalid serving mode: {args.serving_mode}")
+                _run_search_for_config(args, tpot=DIRECT_MODE_TPOT_SENTINEL, attn_bs=attn_bs, kv_len=kv_len, micro_batch_num=mbn)
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     add_arguments(parser)
     args = parser.parse_args()
+    
+    if args.tpot is None and args.attn_bs is None:
+        raise ValueError("Either --tpot or --attn_bs must be specified")
+    
+    is_constraint_mode = args.tpot is not None
+    
     run_search(args)
 
     if os.environ.get("LIGHT_LLM_SKIP_POST_PLOTS", "").lower() in ("1", "true", "yes"):
         return
 
     import subprocess
-    is_constraint_mode = args.tpot is not None
     
     throughput_cmd = [
         "python", "src/visualization/throughput.py",
@@ -233,10 +187,9 @@ def main():
         "--min_die", str(args.min_die),
         "--max_die", str(args.max_die),
     ]
-    # Add heterogeneous parameters if applicable
     if args.deployment_mode == "Heterogeneous":
         if args.device_type2 is None:
-                raise ValueError("device_type2 is required for Heterogeneous deployment mode")
+            raise ValueError("device_type2 is required for Heterogeneous deployment mode")
         throughput_cmd.extend(["--device_type2", args.device_type2])
         _min_die2 = args.min_die2 if args.min_die2 is not None else args.min_die
         _max_die2 = args.max_die2 if args.max_die2 is not None else args.max_die
