@@ -5,6 +5,7 @@ from conf.common import US_2_MS, SEC_2_US, BYTE_2_GB, MEMORY_THRESHOLD_RATIO, MS
 from src.search.base import BaseSearch
 from src.model.register import get_model, get_attention_family
 from conf.config import Config
+from conf.hardware_config import HWConf
 
 
 class DeepEpSearch(BaseSearch):
@@ -69,6 +70,87 @@ class DeepEpSearch(BaseSearch):
             kv_size * self.config.micro_batch_num + attn_static_memory +
             mlp_static_memory + ffn_dynamic_memory + ffn_static_memory
         )
+        e2e_time_per_moe_layer = attn_time + moe_time + commu_time
+        e2e_time = e2e_time_per_moe_layer * (self.config.model_config.num_moe_layers + self.config.seq_len - 1)
+        embedding = model["embedding"]
+        embedding()
+        lm_head = model["lm_head"]
+        lm_head()
+        e2e_time = e2e_time + embedding.e2e_time * SEC_2_US + lm_head.e2e_time * SEC_2_US
+
+        if self.config.model_config.num_layers > self.config.model_config.num_moe_layers:
+            mlp = model["mlp"]
+            mlp()
+            mlp_time = mlp.e2e_time * SEC_2_US
+            e2e_time_per_dense_layer = attn_time + mlp_time
+            e2e_time = e2e_time + e2e_time_per_dense_layer * self.config.model_config.first_k_dense_replace
+        else:
+            e2e_time_per_dense_layer = 0.0
+
+        e2e_time = e2e_time / (1 + self.config.multi_token_ratio) * US_2_MS
+
+        return {
+            'ffn_bs': ffn_bs,
+            'attn_time': attn_time,
+            'moe_time': moe_time,
+            'dispatch_time': dispatch_time,
+            'combine_time': combine_time,
+            'commu_time': commu_time,
+            'e2e_time': e2e_time,
+            'e2e_time_per_dense_layer': e2e_time_per_dense_layer,
+            'e2e_time_per_moe_layer': e2e_time_per_moe_layer,
+            'kv_size': kv_size,
+            'attn_static_memory': attn_static_memory,
+            'mlp_static_memory': mlp_static_memory,
+            'ffn_static_memory': ffn_static_memory,
+            'used_memory': used_memory,
+        }
+
+    def _evaluate_config_direct(self, attn_bs, temp_config, routed_expert_per_die):
+        """Evaluate a single (attn_bs) configuration without TPOT constraint.
+
+        Returns:
+            dict with all result fields, or None if memory constraint is violated.
+        """
+        from conf.hardware_config import DeviceType
+
+        if get_attention_family(self.config.model_type) == "MLA":
+            kv_size, attn_static_memory, mlp_static_memory, per_router_expert_memory = self.compute_MLA_memory_size(
+                self.config.model_config, attn_bs
+            )
+        elif get_attention_family(self.config.model_type) == "GQA":
+            kv_size, attn_static_memory, mlp_static_memory, per_router_expert_memory = self.compute_GQA_memory_size(
+                self.config.model_config, attn_bs
+            )
+        ffn_bs = attn_bs * self.config.model_config.num_experts_per_tok
+        temp_config.attn_bs = attn_bs
+        temp_config.ffn_bs = ffn_bs
+
+        model = get_model(temp_config)
+        attn = model["attn"]
+        attn()
+        moe = model["moe"]
+        moe()
+        attn_time = attn.e2e_time * SEC_2_US
+        moe_time = moe.e2e_time * SEC_2_US
+        commu_time = moe.commu_time * SEC_2_US
+        dispatch_time = moe.dispatch_time * SEC_2_US
+        combine_time = moe.combine_time * SEC_2_US
+
+        ffn_dynamic_memory = (
+            ffn_bs * self.config.model_config.hidden_size *
+            self.config.model_config.num_layers * BYTE_2_GB
+        )
+        ffn_static_memory = per_router_expert_memory * routed_expert_per_die
+        used_memory = (
+            kv_size * self.config.micro_batch_num + attn_static_memory +
+            mlp_static_memory + ffn_dynamic_memory + ffn_static_memory
+        )
+
+        aichip_config = HWConf.create(DeviceType(temp_config.device_type))
+        if used_memory > aichip_config.aichip_memory * BYTE_2_GB * MEMORY_THRESHOLD_RATIO:
+            return None
+
         e2e_time_per_moe_layer = attn_time + moe_time + commu_time
         e2e_time = e2e_time_per_moe_layer * (self.config.model_config.num_moe_layers + self.config.seq_len - 1)
         embedding = model["embedding"]
@@ -175,6 +257,66 @@ class DeepEpSearch(BaseSearch):
 
         return results
 
+    def _run_homogeneous_deepep_direct(self, device_type_str: str, min_die: int, max_die: int, die_step: int, attn_bs: int) -> dict:
+        '''
+        Run homogeneous DeepEP direct calculation on a single device type for a specific attn_bs.
+
+        Args:
+            device_type_str: Device type string (e.g., "Ascend_A3Pod")
+            min_die, max_die, die_step: Die search range
+            attn_bs: Specific attention batch size to evaluate
+
+        Returns:
+            Dictionary mapping total_die -> result dict
+        '''
+        from conf.hardware_config import DeviceType
+
+        device_type = DeviceType(device_type_str)
+        aichip_config = HWConf.create(device_type)
+
+        results = {}
+
+        for total_die in range(min_die, max_die + 1, die_step):
+            routed_expert_per_die = Config.calc_routed_expert_per_die(
+                self.config.model_config.n_routed_experts,
+                self.config.model_config.n_shared_experts,
+                total_die
+            )
+
+            temp_config = Config(
+                serving_mode="DeepEP",
+                model_type=self.config.model_type.value,
+                device_type=device_type_str,
+                min_attn_bs=self.config.min_attn_bs,
+                max_attn_bs=self.config.max_attn_bs,
+                min_die=min_die,
+                max_die=max_die,
+                die_step=die_step,
+                tpot=self.config.tpot,
+                kv_len=self.config.kv_len,
+                micro_batch_num=1,
+                next_n=self.config.seq_len - 1,
+                multi_token_ratio=self.config.multi_token_ratio,
+                attn_tensor_parallel=self.config.attn_tensor_parallel,
+                ffn_tensor_parallel=self.config.ffn_tensor_parallel,
+                deployment_mode="Homogeneous"
+            )
+            temp_config.attn_die = total_die
+            temp_config.ffn_die = total_die
+            temp_config.routed_expert_per_die = routed_expert_per_die
+
+            r = self._evaluate_config_direct(attn_bs, temp_config, routed_expert_per_die)
+            if r is None:
+                continue
+
+            r['attn_bs'] = attn_bs
+            r['throughput'] = attn_bs / r['e2e_time'] / MS_2_SEC
+            r['available_memory'] = aichip_config.aichip_memory * BYTE_2_GB * MEMORY_THRESHOLD_RATIO - r['used_memory']
+
+            results[total_die] = r
+
+        return results
+
     def search_bs_heterogeneous(self):
         '''
         Run heterogeneous DeepEP search.
@@ -248,6 +390,84 @@ class DeepEpSearch(BaseSearch):
         result_path = result_dir + file_name
         df.to_csv(result_path, index=False, float_format='%.2f')
 
+    def search_bs_heterogeneous_direct(self):
+        '''
+        Run heterogeneous DeepEP direct calculation.
+        Iterates over attn_bs values for both device types and computes weighted average throughput.
+        '''
+        logging.info("=" * 60)
+        logging.info("NOTE: DeepEP Heterogeneous Direct mode runs homogeneous DeepEP on two")
+        logging.info("device types separately and computes weighted average throughput.")
+        logging.info("=" * 60)
+
+        if self.config.attn_bs is None:
+            raise ValueError("attn_bs cannot be None for direct calculation mode")
+        if not hasattr(self.config.attn_bs, '__iter__'):
+            raise ValueError(f"attn_bs must be iterable, got {type(self.config.attn_bs).__name__}")
+        try:
+            attn_bs_list = list(self.config.attn_bs)
+        except TypeError:
+            raise ValueError(f"attn_bs must be iterable, got {type(self.config.attn_bs).__name__}")
+        if len(attn_bs_list) == 0:
+            raise ValueError("attn_bs cannot be empty for direct calculation mode")
+
+        for attn_bs in attn_bs_list:
+            self.perf_deepep_results = []
+
+            results_device1 = self._run_homogeneous_deepep_direct(
+                self.config.device_type.value,
+                self.config.min_die,
+                self.config.max_die,
+                self.config.die_step,
+                attn_bs
+            )
+
+            results_device2 = self._run_homogeneous_deepep_direct(
+                self.config.device_type2.value,
+                self.config.min_die2,
+                self.config.max_die2,
+                self.config.die_step2,
+                attn_bs
+            )
+
+            for die1, r1 in results_device1.items():
+                for die2, r2 in results_device2.items():
+                    total_die = die1 + die2
+                    weighted_throughput = (die1 * r1['throughput'] + die2 * r2['throughput']) / total_die
+
+                    logging.info(f"-------DeepEP Heterogeneous Direct Result:-------")
+                    logging.info(
+                        f"attn_bs:{attn_bs}, device1_die:{die1}, device2_die:{die2}, total_die:{total_die}, "
+                        f"throughput_device1:{r1['throughput']:.2f}, throughput_device2:{r2['throughput']:.2f}, "
+                        f"weighted_throughput:{weighted_throughput:.2f} tokens/die/s"
+                    )
+
+                    self.perf_deepep_results.append([
+                        attn_bs, r1['ffn_bs'], self.config.kv_len, die1, die2, total_die,
+                        r1['attn_time'], r1['moe_time'], r1['dispatch_time'], r1['combine_time'], r1['commu_time'], r1['e2e_time'],
+                        r1['e2e_time_per_dense_layer'], r1['e2e_time_per_moe_layer'],
+                        r1['throughput'], r2['throughput'], weighted_throughput,
+                        r1['kv_size'], r1['attn_static_memory'], r1['mlp_static_memory'], r1['ffn_static_memory'],
+                        r1['used_memory'], r1['available_memory'],
+                        "Heterogeneous", self.config.device_type.name, self.config.device_type2.name
+                    ])
+
+            columns = [
+                'attn_bs', 'ffn_bs', 'kv_len', 'device1_die', 'device2_die', 'total_die',
+                'attn_time(us)', 'moe_time(us)', 'dispatch_time(us)', 'combine_time(us)', 'commu_time(us)', 'e2e_time(ms)',
+                'e2e_time_per_dense_layer(us)', 'e2e_time_per_moe_layer(us)',
+                'throughput_device1(tokens/die/s)', 'throughput_device2(tokens/die/s)', 'weighted_throughput(tokens/die/s)',
+                'kv_size(GB)', 'attn_static_memory(GB)', 'mlp_static_memory(GB)', 'ffn_static_memory(GB)',
+                'used_memory(GB)', 'available_memory(GB)',
+                'deployment_mode', 'device_type1', 'device_type2'
+            ]
+            df = pd.DataFrame(self.perf_deepep_results, columns=columns)
+            result_dir = f"data/deepep/heterogeneous/"
+            file_name = f"{self.config.device_type.name}_{self.config.device_type2.name}-{self.config.model_type.name}-bs{attn_bs}-kv_len{self.config.kv_len}.csv"
+            os.makedirs(result_dir, exist_ok=True)
+            result_path = result_dir + file_name
+            df.to_csv(result_path, index=False, float_format='%.2f')
+
     def search_bs(self):
         '''
         Description:
@@ -285,13 +505,82 @@ class DeepEpSearch(BaseSearch):
         result_path = result_dir + file_name
         df.to_csv(result_path, index=False, float_format='%.2f')
 
+    def search_bs_direct(self):
+        '''
+        Description:
+            Direct calculation mode without TPOT constraint.
+            Iterates over specified attn_bs values for each total_die.
+            Saves separate CSV files for each attn_bs value.
+        '''
+        if self.config.attn_bs is None:
+            raise ValueError("attn_bs cannot be None for direct calculation mode")
+        if not hasattr(self.config.attn_bs, '__iter__'):
+            raise ValueError(f"attn_bs must be iterable, got {type(self.config.attn_bs).__name__}")
+        try:
+            attn_bs_list = list(self.config.attn_bs)
+        except TypeError:
+            raise ValueError(f"attn_bs must be iterable, got {type(self.config.attn_bs).__name__}")
+        if len(attn_bs_list) == 0:
+            raise ValueError("attn_bs cannot be empty for direct calculation mode")
+
+        for attn_bs in attn_bs_list:
+            self.perf_deepep_results = []
+
+            results = self._run_homogeneous_deepep_direct(
+                self.config.device_type.value,
+                self.config.min_die,
+                self.config.max_die,
+                self.config.die_step,
+                attn_bs
+            )
+
+            for total_die, r in results.items():
+                logging.info(f"-------DeepEP Direct Result:-------")
+                logging.info(
+                    f"attn_bs:{attn_bs}, total_die:{total_die}, "
+                    f"attn_time:{r['attn_time']:.2f}us, moe_time:{r['moe_time']:.2f}us, "
+                    f"dispatch_time:{r['dispatch_time']:.2f}us, combine_time:{r['combine_time']:.2f}us, "
+                    f"commu_time:{r['commu_time']:.2f}us, e2e_time:{r['e2e_time']:.2f}ms, "
+                    f"throughput:{r['throughput']:.2f} tokens/die/s"
+                )
+
+                self.perf_deepep_results.append([
+                    attn_bs, r['ffn_bs'], self.config.kv_len, total_die,
+                    r['attn_time'], r['moe_time'], r['dispatch_time'], r['combine_time'], r['commu_time'], r['e2e_time'],
+                    r['e2e_time_per_dense_layer'], r['e2e_time_per_moe_layer'], r['throughput'],
+                    r['kv_size'], r['attn_static_memory'], r['mlp_static_memory'], r['ffn_static_memory'],
+                    r['used_memory'], r['available_memory'],
+                    "Homogeneous", self.config.device_type.name, self.config.device_type.name
+                ])
+
+            columns = [
+                'attn_bs', 'ffn_bs', 'kv_len', 'total_die',
+                'attn_time(us)', 'moe_time(us)', 'dispatch_time(us)', 'combine_time(us)', 'commu_time(us)', 'e2e_time(ms)',
+                'e2e_time_per_dense_layer(us)', 'e2e_time_per_moe_layer(us)', 'throughput(tokens/die/s)',
+                'kv_size(GB)', 'attn_static_memory(GB)', 'mlp_static_memory(GB)', 'ffn_static_memory(GB)',
+                'used_memory(GB)', 'available_memory(GB)',
+                'deployment_mode', 'device_type1', 'device_type2'
+            ]
+            df = pd.DataFrame(self.perf_deepep_results, columns=columns)
+            result_dir = f"data/deepep/homogeneous/"
+            file_name = f"{self.config.device_type.name}-{self.config.model_type.name}-bs{attn_bs}-kv_len{self.config.kv_len}.csv"
+            os.makedirs(result_dir, exist_ok=True)
+            result_path = result_dir + file_name
+            df.to_csv(result_path, index=False, float_format='%.2f')
+
     def deployment(self):
         '''
-        Run DeepEP deployment based on deployment_mode.
-        - Homogeneous: Run standard DeepEP on single device type
-        - Heterogeneous: Run homogeneous DeepEP on two device types separately
+        Run DeepEP deployment based on mode and deployment_mode.
+        - constraint mode: Binary search for max attn_bs satisfying TPOT constraint
+        - direct mode: Iterate over specified attn_bs values without TPOT constraint
         '''
-        if self.config.deployment_mode == "Heterogeneous":
-            self.search_bs_heterogeneous()
+        if self.config.mode == "constraint":
+            if self.config.deployment_mode == "Heterogeneous":
+                self.search_bs_heterogeneous()
+            else:
+                self.search_bs()
         else:
-            self.search_bs()
+            if self.config.deployment_mode == "Heterogeneous":
+                self.search_bs_heterogeneous_direct()
+            else:
+                self.search_bs_direct()
