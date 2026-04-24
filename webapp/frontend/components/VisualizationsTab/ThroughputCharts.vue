@@ -53,10 +53,10 @@
       </label>
 
       <label class="field">
-        <span>TPOT</span>
-        <input type="number" v-model.number="params.tpot" list="tpot-list" min="1" />
-        <datalist id="tpot-list">
-          <option v-for="tpot in tpotSuggestions" :key="tpot" :value="tpot" />
+        <span>Attn Batch Size</span>
+        <input type="number" v-model.number="params.attnBs" list="attnbs-list" min="1" />
+        <datalist id="attnbs-list">
+          <option v-for="bs in attnBsSuggestions" :key="bs" :value="bs" />
         </datalist>
       </label>
 
@@ -133,7 +133,7 @@ const DEFAULT_PARAMS = {
   deviceType2: 'ASCENDDAVID121',
   modelType: 'DEEPSEEK_V3',
   totalDie: 128,
-  tpot: 50,
+  attnBs: 32,
   kvLen: 4096,
   servingMode: 'AFD',
   microBatchNum: 3,
@@ -164,7 +164,7 @@ const DEPLOYMENT_MODES = [
   { value: 'Heterogeneous', label: 'Heterogeneous' }
 ];
 
-const TPOT_SUGGESTIONS = [20, 50, 70, 100, 150];
+const ATTN_BS_SUGGESTIONS = [16, 32, 64, 128, 256];
 const KV_LEN_SUGGESTIONS = [2048, 4096, 8192, 16384, 131072];
 
 export default {
@@ -211,7 +211,7 @@ export default {
           device_type: params.deviceType,
           model_type: params.modelType,
           total_die: String(params.totalDie),
-          tpot: String(params.tpot),
+          attn_bs: String(params.attnBs),
           kv_len: String(params.kvLen),
           deployment_mode: params.deploymentMode
         };
@@ -228,7 +228,7 @@ export default {
           deviceType2: params.deviceType2,
           modelType: params.modelType,
           totalDie: Number(params.totalDie),
-          tpot: Number(params.tpot),
+          attnBs: Number(params.attnBs),
           kvLen: Number(params.kvLen),
           microBatchNum: Number(params.microBatchNum) || 3
         });
@@ -263,7 +263,7 @@ export default {
       deviceOptions: DEVICE_OPTIONS,
       modelOptions: MODEL_OPTIONS,
       deploymentModes: DEPLOYMENT_MODES,
-      tpotSuggestions: TPOT_SUGGESTIONS,
+      attnBsSuggestions: ATTN_BS_SUGGESTIONS,
       kvLenSuggestions: KV_LEN_SUGGESTIONS
     };
   }
