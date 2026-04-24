@@ -38,7 +38,7 @@ class AfdSearch(BaseSearch):
             device_type_attn: Device type for attention.
             device_type_ffn: Device type for FFN.
     '''
-    ATTN_DIE_MULTIPLIER = 7
+    ATTN_DIE_MULTIPLIER = 4
 
     def __init__(self, config: Config):
         super().__init__(config)
